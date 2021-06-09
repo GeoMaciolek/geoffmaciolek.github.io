@@ -1,0 +1,1112 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+    <title>vscode python take 2</title>
+    <link rel="preconnect" href="https://fonts.gstatic.com">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@200&amp;display=swap"
+      rel="stylesheet">
+    <style>
+      body {
+				margin:20px;
+        background-color: #282a36;
+      }
+    </style>
+  </head>
+  <body>
+    <div style="color: #f8f8f2;background-color: #282a36;font-family: 'Jetbrains Mono', 'xJetbrains Mono Thin', 'Terminus (TTF) for Windows', 'xRec Mono Duotone', 'xFira Code', 'xOperator Mono', 'xCascadia Mono', 'xVictor Mono', xConsolas, 'Courier New', monospace, Consolas, 'Courier New', monospace;font-weight: 150;font-size: 12px;line-height: 17px;white-space: pre;"><div><span
+style="color: #6272a4;">"""</span></div><br><div><span style="color: #6272a4;">sftp-homedir-reporting</span></div><br><div><span
+style="color: #6272a4;">Script&nbsp;to&nbsp;perform&nbsp;disk&nbsp;usage&nbsp;reporting,&nbsp;and&nbsp;to&nbsp;identify&nbsp;what&nbsp;SFTP&nbsp;users&nbsp;are</span></div><div><span
+style="color: #6272a4;">and&nbsp;aren't&nbsp;current,&nbsp;what&nbsp;their&nbsp;most&nbsp;recent&nbsp;uploads&nbsp;are,&nbsp;etc.</span></div><br><div><span
+style="color: #6272a4;">Also&nbsp;compares&nbsp;against&nbsp;PCCA-provided&nbsp;CSV.&nbsp;See&nbsp;`todo.md`&nbsp;&amp;&nbsp;older&nbsp;`disk-usage-report.sh`</span></div><br><div><span
+style="color: #6272a4;">the&nbsp;`make-homedir-test-copy.sh`&nbsp;script&nbsp;can&nbsp;be&nbsp;run&nbsp;on&nbsp;the&nbsp;server&nbsp;to&nbsp;create&nbsp;a</span></div><div><span
+style="color: #6272a4;">current&nbsp;copy&nbsp;of&nbsp;the&nbsp;directory&nbsp;tree&nbsp;(with&nbsp;1&nbsp;byte&nbsp;files)&nbsp;for&nbsp;testing</span></div><br><div><span
+style="color: #ff79c6;">TODO</span></div><div><span style="color: #6272a4;">&nbsp;&nbsp;&nbsp;&nbsp;*&nbsp;Merge&nbsp;the&nbsp;ignore_users&nbsp;and&nbsp;skip_folders&nbsp;logic</span></div><div><span
+style="color: #6272a4;">&nbsp;&nbsp;&nbsp;&nbsp;*&nbsp;Add&nbsp;possibility&nbsp;to&nbsp;ignore&nbsp;fields&nbsp;to&nbsp;the&nbsp;csv&nbsp;function,&nbsp;and</span></div><div><span
+style="color: #6272a4;">&nbsp;&nbsp;&nbsp;&nbsp;*&nbsp;Get&nbsp;the&nbsp;'fs&nbsp;only'&nbsp;report&nbsp;to&nbsp;live&nbsp;in&nbsp;the&nbsp;same&nbsp;place&nbsp;as&nbsp;the&nbsp;others</span></div><div><span
+style="color: #6272a4;">&nbsp;&nbsp;&nbsp;&nbsp;*&nbsp;Compare&nbsp;"...Status'&nbsp;file&nbsp;size&nbsp;with&nbsp;actual&nbsp;file&nbsp;size.</span></div><div><span
+style="color: #6272a4;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;*&nbsp;get&nbsp;the&nbsp;"Compressed&nbsp;File&nbsp;Size&nbsp;:&nbsp;88888&nbsp;bytes"&nbsp;from&nbsp;so-and-so&nbsp;ftpStatus</span></div><div><span
+style="color: #6272a4;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;*&nbsp;Add&nbsp;fields&nbsp;-&nbsp;"last&nbsp;upload&nbsp;successful?"</span></div><div><span
+style="color: #6272a4;">&nbsp;&nbsp;&nbsp;&nbsp;*&nbsp;Try&nbsp;getting&nbsp;pharmacy&nbsp;name&nbsp;from&nbsp;/etc/passwd&nbsp;(or&nbsp;via&nbsp;OS&nbsp;call&nbsp;to&nbsp;username's&nbsp;'Full&nbsp;Name')</span></div><br><div><span
+style="color: #6272a4;">"""</span></div><br><div><span style="color: #f8f8f2;">source_path</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">=</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">'</span><span
+style="color: #f1fa8c;">/home/geo/work/home-mirror-0b-2021-06-02/</span><span style="color: #e9f284;">'</span></div><div><span
+style="color: #f8f8f2;">client_definition_csv</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">pcca-source-report.csv</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;The&nbsp;CSV&nbsp;provided&nbsp;by&nbsp;the&nbsp;client&nbsp;(checked&nbsp;against)</span></div><div><span
+style="color: #f8f8f2;">upload_stale_days</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #bd93f9;">10</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;If&nbsp;a&nbsp;client&nbsp;hasn't&nbsp;had&nbsp;an&nbsp;upload&nbsp;in&nbsp;__&nbsp;days,&nbsp;we&nbsp;consider&nbsp;them&nbsp;'stale'&nbsp;/&nbsp;not&nbsp;uploading</span></div><div><span
+style="color: #f8f8f2;">save_timestamped_reports</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #bd93f9;">True</span><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Do&nbsp;we&nbsp;want&nbsp;to&nbsp;create&nbsp;a&nbsp;timestamped&nbsp;report&nbsp;output&nbsp;directory?</span></div><div><span
+style="color: #f8f8f2;">timestamped_report_output_path</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">./reports/timestamped/</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;(The&nbsp;path&nbsp;to&nbsp;save&nbsp;the&nbsp;above)</span></div><div><span
+style="color: #f8f8f2;">save_standard_reports</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #bd93f9;">True</span><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Save&nbsp;a&nbsp;standard&nbsp;(filename&nbsp;&amp;&nbsp;path&nbsp;doesnt&nbsp;change)&nbsp;report?&nbsp;</span></div><div><span
+style="color: #f8f8f2;">standard_report_output_path</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">./reports/staticnames/</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;(the&nbsp;path&nbsp;to&nbsp;save&nbsp;the&nbsp;above)&nbsp;-&nbsp;poss.&nbsp;for&nbsp;clients&nbsp;to&nbsp;download/parse</span></div><div><span
+style="color: #f8f8f2;">client_definition_csv_idfield</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">Customer</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;The&nbsp;field/key&nbsp;to&nbsp;use&nbsp;as&nbsp;the&nbsp;primary&nbsp;key</span></div><div><span
+style="color: #f8f8f2;">csv_master_report_outfile</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">master_sftp_client_report.csv</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;The&nbsp;CSV&nbsp;to&nbsp;write&nbsp;the&nbsp;master&nbsp;report&nbsp;to</span></div><div><span
+style="color: #f8f8f2;">csv_fs_report_outfile</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">fs_report_output.csv</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;The&nbsp;CSV&nbsp;to&nbsp;write&nbsp;the&nbsp;filesystem&nbsp;report&nbsp;to</span></div><div><span
+style="color: #f8f8f2;">csv_output_missing_from_import</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">clients_on_server_missing_from_imported_csv.csv</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;CSV&nbsp;of...</span></div><div><span style="color: #f8f8f2;">csv_output_no_current_uploads</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">=</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">'</span><span
+style="color: #f1fa8c;">clients_with_no_current_uploads.csv</span><span style="color: #e9f284;">'</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #6272a4;">#&nbsp;CSV&nbsp;of...</span></div><div><span
+style="color: #f8f8f2;">csv_output_on_csv_with_no_folder</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">clients_from_csv_with_no_folder_on_server.csv</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;CSV&nbsp;of&nbsp;...</span></div><div><span style="color: #f8f8f2;">homedir_stringstart</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">=</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">'</span><span
+style="color: #f1fa8c;">pk</span><span style="color: #e9f284;">'</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;The&nbsp;string&nbsp;that&nbsp;any&nbsp;relevant&nbsp;home&nbsp;dir&nbsp;starts&nbsp;with.&nbsp;-&nbsp;case&nbsp;insensitive</span></div><div><span
+style="color: #f8f8f2;">ignore_users</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;[</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">pksupport</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">,</span><span style="color: #e9f284;">'</span><span
+style="color: #f1fa8c;">pkadmin</span><span style="color: #e9f284;">'</span><span
+style="color: #f8f8f2;">,&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Ignore&nbsp;these&nbsp;user&nbsp;accounts&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #e9f284;">'</span><span
+style="color: #f1fa8c;">1955</span><span style="color: #e9f284;">'</span><span style="color: #f8f8f2;">,</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">pk14230pk</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">,</span><span style="color: #e9f284;">'</span><span
+style="color: #f1fa8c;">pk14543pk</span><span style="color: #e9f284;">'</span><span
+style="color: #f8f8f2;">,&nbsp;</span><span style="color: #e9f284;">'</span><span
+style="color: #f1fa8c;">pk1703pk</span><span style="color: #e9f284;">'</span><span
+style="color: #f8f8f2;">]&nbsp;</span><span style="color: #6272a4;">#&nbsp;-&nbsp;case&nbsp;insensitive</span></div><div><span
+style="color: #f8f8f2;">add_custom_clients</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #bd93f9;">True</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;&nbsp;adds&nbsp;from&nbsp;custom_clients[]</span></div><div><span
+style="color: #f8f8f2;">max_results</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #bd93f9;">0</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Set&nbsp;this&nbsp;to&nbsp;0&nbsp;for&nbsp;normal&nbsp;operation!&nbsp;Otherwise:&nbsp;max&nbsp;results&nbsp;checked&nbsp;(dev/testing)</span></div><br><div><span
+style="color: #f8f8f2;">report_fields</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;[</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #e9f284;">'</span><span
+style="color: #f1fa8c;">id</span><span style="color: #e9f284;">'</span><span style="color: #f8f8f2;">,&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">full_name</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">,&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">homedir_posix</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">,</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #e9f284;">'</span><span
+style="color: #f1fa8c;">size_megs</span><span style="color: #e9f284;">'</span><span
+style="color: #f8f8f2;">,&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">last_upload</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">,</span><span style="color: #6272a4;">#&nbsp;&nbsp;&nbsp;&nbsp;'last_upload_unixtime',</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #e9f284;">'</span><span
+style="color: #f1fa8c;">uploads_are_current</span><span style="color: #e9f284;">'</span><span
+style="color: #f8f8f2;">,&nbsp;&nbsp;</span><span style="color: #e9f284;">'</span><span
+style="color: #f1fa8c;">missing_from_imported_csv</span><span style="color: #e9f284;">'</span><span
+style="color: #f8f8f2;">,</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">missing_on_server</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">,&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">billing_frequency</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">,</span></div><div><span
+style="color: #6272a4;">#&nbsp;&nbsp;&nbsp;&nbsp;'clientid_exists_in_clientcsv',&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'clientid_exists_in_filesystem',</span></div><div><span
+style="color: #6272a4;">#&nbsp;&nbsp;&nbsp;&nbsp;'clientid_exists_in_custom_clients',</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #e9f284;">'</span><span
+style="color: #f1fa8c;">comments</span><span style="color: #e9f284;">'</span></div><div><span
+style="color: #f8f8f2;">]</span></div><br><div><span style="color: #6272a4;">#from&nbsp;dataclasses&nbsp;import&nbsp;dataclass</span></div><div><span
+style="color: #6272a4;">#@dataclass</span></div><br><div><span style="color: #6272a4;">#&nbsp;Custom&nbsp;clients&nbsp;-&nbsp;clients&nbsp;with&nbsp;paths&nbsp;that&nbsp;don't&nbsp;fit&nbsp;the&nbsp;correct&nbsp;patterns</span></div><div><span
+style="color: #f8f8f2;">custom_clients</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;[</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;{</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">homedir_posix</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">:&nbsp;</span><span
+style="color: #f8f8f2;">source_path</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">+</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">pk14349b</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">,</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">id</span><span style="color: #e9f284;">'</span><span
+style="color: #f8f8f2;">:&nbsp;</span><span style="color: #e9f284;">'</span><span
+style="color: #f1fa8c;">14349</span><span style="color: #e9f284;">'</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;},</span></div><div><span style="color: #6272a4;">#&nbsp;&nbsp;&nbsp;&nbsp;{&nbsp;'homedir_posix':&nbsp;source_path&nbsp;+&nbsp;'14230pk',&nbsp;'id':&nbsp;'14230'&nbsp;},</span></div><div><span
+style="color: #6272a4;">#&nbsp;&nbsp;&nbsp;&nbsp;{&nbsp;'homedir_posix':&nbsp;source_path&nbsp;+&nbsp;'14543pk',&nbsp;'id':&nbsp;'14543'&nbsp;},</span></div><div><span
+style="color: #6272a4;">#&nbsp;&nbsp;&nbsp;&nbsp;{&nbsp;'homedir_posix':&nbsp;source_path&nbsp;+&nbsp;'pk1703pk',&nbsp;'id':&nbsp;'1703'&nbsp;},</span></div><div><span
+style="color: #6272a4;">#&nbsp;&nbsp;&nbsp;&nbsp;{&nbsp;'homedir_posix':&nbsp;source_path&nbsp;+&nbsp;'1955',&nbsp;&nbsp;'id':&nbsp;'1955'&nbsp;},</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;{&nbsp;</span><span style="color: #e9f284;">'</span><span
+style="color: #f1fa8c;">homedir_posix</span><span style="color: #e9f284;">'</span><span
+style="color: #f8f8f2;">:&nbsp;</span><span style="color: #f8f8f2;">source_path</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">+</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">'</span><span
+style="color: #f1fa8c;">PK10553</span><span style="color: #e9f284;">'</span><span
+style="color: #f8f8f2;">,&nbsp;</span><span style="color: #e9f284;">'</span><span
+style="color: #f1fa8c;">id</span><span style="color: #e9f284;">'</span><span style="color: #f8f8f2;">:&nbsp;</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">10553</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">&nbsp;},</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;{&nbsp;</span><span style="color: #e9f284;">'</span><span
+style="color: #f1fa8c;">homedir_posix</span><span style="color: #e9f284;">'</span><span
+style="color: #f8f8f2;">:&nbsp;</span><span style="color: #f8f8f2;">source_path</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">+</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">'</span><span
+style="color: #f1fa8c;">PK12732</span><span style="color: #e9f284;">'</span><span
+style="color: #f8f8f2;">,&nbsp;</span><span style="color: #e9f284;">'</span><span
+style="color: #f1fa8c;">id</span><span style="color: #e9f284;">'</span><span style="color: #f8f8f2;">:&nbsp;</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">12732</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">&nbsp;}</span></div><div><span
+style="color: #f8f8f2;">]</span></div><br><div><span style="color: #6272a4;">#&nbsp;The&nbsp;map&nbsp;from&nbsp;client-provided&nbsp;CSV&nbsp;(Keys)&nbsp;to&nbsp;our&nbsp;master&nbsp;report&nbsp;(Values)</span></div><div><span
+style="color: #f8f8f2;">imported_csv_field_mapping</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;{</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #f8f8f2;">client_definition_csv_idfield</span><span
+style="color: #f8f8f2;">:&nbsp;</span><span style="color: #e9f284;">'</span><span
+style="color: #f1fa8c;">id</span><span style="color: #e9f284;">'</span><span style="color: #f8f8f2;">,&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;As&nbsp;in/previously:&nbsp;'Customer':&nbsp;'id',</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #e9f284;">'</span><span
+style="color: #f1fa8c;">Pharmacy&nbsp;Name</span><span style="color: #e9f284;">'</span><span
+style="color: #f8f8f2;">:&nbsp;</span><span style="color: #e9f284;">'</span><span
+style="color: #f1fa8c;">full_name</span><span style="color: #e9f284;">'</span><span
+style="color: #f8f8f2;">,</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">Billing&nbsp;Frequency</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">:&nbsp;</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">billing_frequency</span><span
+style="color: #e9f284;">'</span></div><div><span style="color: #f8f8f2;">}</span></div><br><br><div><span
+style="color: #ff79c6;">import</span><span style="color: #f8f8f2;">&nbsp;os,&nbsp;csv,&nbsp;tempfile,&nbsp;shutil</span></div><br><div><span
+style="color: #ff79c6;">from</span><span style="color: #f8f8f2;">&nbsp;pathlib&nbsp;</span><span
+style="color: #ff79c6;">import</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #8be9fd;">Path</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;For&nbsp;cross-platform&nbsp;paths,&nbsp;and&nbsp;to&nbsp;get&nbsp;file&nbsp;sizes,&nbsp;timestamps,&nbsp;etc</span></div><div><span
+style="color: #ff79c6;">from</span><span style="color: #f8f8f2;">&nbsp;datetime&nbsp;</span><span
+style="color: #ff79c6;">import</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #8be9fd;">datetime</span><span style="color: #f8f8f2;">,&nbsp;</span><span
+style="color: #8be9fd;">timedelta</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;So&nbsp;we&nbsp;can&nbsp;make&nbsp;a&nbsp;clean,&nbsp;readable&nbsp;timestamp&nbsp;-&nbsp;and&nbsp;do&nbsp;math</span></div><br><div><span
+style="color: #6272a4;">###&nbsp;Define&nbsp;Functions</span></div><br><div><span
+style="color: #6272a4;">#&nbsp;Get&nbsp;latest&nbsp;file&nbsp;(returns&nbsp;"st_ctime"&nbsp;timestamp&nbsp;for&nbsp;latest&nbsp;file&nbsp;in&nbsp;specified&nbsp;path)</span></div><div><span
+style="color: #ff79c6;">def</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #50fa7b;">latest_file</span><span style="color: #f8f8f2;">(</span><span
+style="color: #ffb86c;font-style: italic;">path</span><span style="color: #ff79c6;">:</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #8be9fd;">Path</span><span
+style="color: #f8f8f2;">,&nbsp;</span><span style="color: #ffb86c;font-style: italic;">pattern</span><span
+style="color: #ff79c6;">:</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #8be9fd;">str</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">*</span><span style="color: #e9f284;">"</span><span
+style="color: #f8f8f2;">):</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">files</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ffb86c;font-style: italic;">path</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">glob</span><span style="color: #f8f8f2;">(</span><span style="color: #ffb86c;font-style: italic;">pattern</span><span
+style="color: #f8f8f2;">)</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #ff79c6;">return</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #50fa7b;">max</span><span style="color: #f8f8f2;">(</span><span style="color: #f8f8f2;">files</span><span
+style="color: #f8f8f2;">,&nbsp;</span><span style="color: #ffb86c;font-style: italic;">key</span><span
+style="color: #ff79c6;">=lambda</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ffb86c;font-style: italic;">x</span><span style="color: #f8f8f2;">:&nbsp;</span><span
+style="color: #ffb86c;font-style: italic;">x</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">stat</span><span style="color: #f8f8f2;">().</span><span
+style="color: #f8f8f2;">st_ctime</span><span style="color: #f8f8f2;">)</span></div><br><div><span
+style="color: #ff79c6;">def</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #50fa7b;">write_dict_csv</span><span style="color: #f8f8f2;">(</span><span
+style="color: #ffb86c;font-style: italic;">output_filename</span><span style="color: #f8f8f2;">,</span><span
+style="color: #ffb86c;font-style: italic;">input_array</span><span style="color: #f8f8f2;">,</span><span
+style="color: #ffb86c;font-style: italic;">my_report_fields</span><span style="color: #ff79c6;">=</span><span
+style="color: #f8f8f2;">report_fields</span><span style="color: #f8f8f2;">):</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">with</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #50fa7b;">open</span><span
+style="color: #f8f8f2;">(</span><span style="color: #ffb86c;font-style: italic;">output_filename</span><span
+style="color: #f8f8f2;">,&nbsp;</span><span style="color: #e9f284;">'</span><span
+style="color: #f1fa8c;">w</span><span style="color: #e9f284;">'</span><span style="color: #f8f8f2;">,&nbsp;</span><span
+style="color: #ffb86c;font-style: italic;">newline</span><span style="color: #ff79c6;">=</span><span
+style="color: #e9f284;">''</span><span style="color: #f8f8f2;">)&nbsp;</span><span
+style="color: #ff79c6;">as</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">csv_out_obj</span><span style="color: #f8f8f2;">:</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">csv_dictwriter_obj</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;csv.</span><span
+style="color: #8be9fd;">DictWriter</span><span style="color: #f8f8f2;">(</span><span
+style="color: #f8f8f2;">csv_out_obj</span><span style="color: #f8f8f2;">,</span><span
+style="color: #ffb86c;font-style: italic;">fieldnames</span><span style="color: #ff79c6;">=</span><span
+style="color: #ffb86c;font-style: italic;">my_report_fields</span><span style="color: #f8f8f2;">,</span><span
+style="color: #ffb86c;font-style: italic;">extrasaction</span><span style="color: #ff79c6;">=</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">ignore</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">)</span><span style="color: #6272a4;">#,restval='MISSING')</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">csv_dictwriter_obj</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">writeheader</span><span style="color: #f8f8f2;">()</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #ff79c6;">for</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">client_obj</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">in</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ffb86c;font-style: italic;">input_array</span><span style="color: #f8f8f2;">:</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">csv_dictwriter_obj</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">writerow</span><span style="color: #f8f8f2;">(</span><span
+style="color: #f8f8f2;">client_obj</span><span style="color: #f8f8f2;">)</span></div><br><br><div><span
+style="color: #6272a4;">###&nbsp;Begin&nbsp;Script&nbsp;###</span></div><br><div><span
+style="color: #6272a4;">####&nbsp;Variable&nbsp;Init</span></div><br><div><span
+style="color: #f8f8f2;">client_fs_report_list</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;[]&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Set&nbsp;up&nbsp;our&nbsp;client&nbsp;filesystem&nbsp;report&nbsp;list</span></div><div><span
+style="color: #f8f8f2;">client_fs_report_dict</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;{}&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;and&nbsp;report&nbsp;dictionary</span></div><div><span
+style="color: #f8f8f2;">current_timestamp</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #8be9fd;">datetime</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">now</span><span style="color: #f8f8f2;">().</span><span
+style="color: #50fa7b;">strftime</span><span style="color: #f8f8f2;">(</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">%Y-%m-</span><span
+style="color: #bd93f9;">%d</span><span style="color: #f1fa8c;">_%H%M</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">)&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Used&nbsp;for&nbsp;timestamping&nbsp;output&nbsp;directories</span></div><br><div><span
+style="color: #6272a4;">#&nbsp;To&nbsp;check&nbsp;for&nbsp;stale&nbsp;files,&nbsp;we&nbsp;need&nbsp;a&nbsp;datetime&nbsp;for&nbsp;'file&nbsp;is&nbsp;newer&nbsp;than'</span></div><div><span
+style="color: #f8f8f2;">stale_file_cutoff</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #8be9fd;">datetime</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">utcnow</span><span style="color: #f8f8f2;">()&nbsp;</span><span
+style="color: #ff79c6;">-</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #8be9fd;">timedelta</span><span style="color: #f8f8f2;">(</span><span
+style="color: #ffb86c;font-style: italic;">days</span><span style="color: #ff79c6;">=</span><span
+style="color: #f8f8f2;">upload_stale_days</span><span style="color: #f8f8f2;">)</span></div><br><div><span
+style="color: #6272a4;">#&nbsp;Get&nbsp;a&nbsp;list&nbsp;of&nbsp;all&nbsp;folders&nbsp;(typically&nbsp;'home&nbsp;folders')&nbsp;in&nbsp;the&nbsp;'source_path'&nbsp;location</span></div><div><span
+style="color: #f8f8f2;">home_folders</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #8be9fd;">Path</span><span style="color: #f8f8f2;">(</span><span style="color: #f8f8f2;">source_path</span><span
+style="color: #f8f8f2;">).</span><span style="color: #50fa7b;">iterdir</span><span
+style="color: #f8f8f2;">()&nbsp;</span></div><br><div><span style="color: #6272a4;">#&nbsp;What&nbsp;folders&nbsp;we&nbsp;want&nbsp;to&nbsp;skip&nbsp;(because&nbsp;they're&nbsp;in&nbsp;custom_clients?)</span></div><div><span
+style="color: #f8f8f2;">skip_folders</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;[]</span></div><div><span
+style="color: #ff79c6;">for</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">custom_client</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">in</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">custom_clients</span><span style="color: #f8f8f2;">:</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #f8f8f2;">skip_folders</span><span
+style="color: #f8f8f2;">.</span><span style="color: #50fa7b;">append</span><span
+style="color: #f8f8f2;">(</span><span style="color: #f8f8f2;">custom_client</span><span
+style="color: #f8f8f2;">[</span><span style="color: #e9f284;">'</span><span style="color: #f1fa8c;">homedir_posix</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">])</span></div><br><div><span
+style="color: #f8f8f2;">all_client_ids</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #8be9fd;">set</span><span style="color: #f8f8f2;">()&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Make&nbsp;a&nbsp;set&nbsp;of&nbsp;all&nbsp;client&nbsp;IDs&nbsp;(unique!)&nbsp;-&nbsp;we'll&nbsp;add&nbsp;to&nbsp;it&nbsp;as&nbsp;we&nbsp;go.</span></div><br><div><span
+style="color: #6272a4;">####&nbsp;Start&nbsp;Filesystem-based&nbsp;Report</span></div><div><span
+style="color: #f8f8f2;">filesystem_client_ids</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #8be9fd;">set</span><span style="color: #f8f8f2;">()&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;List&nbsp;of&nbsp;ids&nbsp;in&nbsp;the&nbsp;filesystem&nbsp;report</span></div><br><div><span
+style="color: #f8f8f2;">i</span><span style="color: #ff79c6;">=</span><span style="color: #bd93f9;">0</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #6272a4;">#&nbsp;Used&nbsp;for&nbsp;testing-mode&nbsp;of&nbsp;script</span></div><div><span
+style="color: #ff79c6;">for</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">homedir</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">in</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">home_folders</span><span style="color: #f8f8f2;">:</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">#print(homedir)</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #f8f8f2;">this_client</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">{}</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #f8f8f2;">this_client_homedir_posix</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">=</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #f8f8f2;">homedir</span><span
+style="color: #f8f8f2;">.</span><span style="color: #50fa7b;">as_posix</span><span
+style="color: #f8f8f2;">()</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #ff79c6;">if</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">this_client_homedir_posix</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">in</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">skip_folders</span><span style="color: #f8f8f2;">:</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #50fa7b;">print</span><span style="color: #f8f8f2;">(</span><span
+style="color: #ff79c6;">f</span><span style="color: #f1fa8c;">"Skipping&nbsp;</span><span
+style="color: #bd93f9;">{</span><span style="color: #f8f8f2;">this_client</span><span
+style="color: #bd93f9;">}</span><span style="color: #f1fa8c;">&nbsp;as&nbsp;</span><span
+style="color: #bd93f9;">{</span><span style="color: #f8f8f2;">this_client_homedir_posix</span><span
+style="color: #bd93f9;">}</span><span style="color: #f1fa8c;">&nbsp;is&nbsp;in&nbsp;'custom_clients'&nbsp;list"</span><span
+style="color: #f8f8f2;">)</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #ff79c6;">else</span><span style="color: #f8f8f2;">:&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;We're&nbsp;clear&nbsp;to&nbsp;go&nbsp;ahead</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">this_client</span><span style="color: #f8f8f2;">[</span><span
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">homedir_posix</span><span
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">]&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">this_client_homedir_posix</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Get&nbsp;the&nbsp;total&nbsp;size&nbsp;of&nbsp;all&nbsp;files&nbsp;-&nbsp;we&nbsp;'glob'&nbsp;for&nbsp;every&nbsp;single&nbsp;file&nbsp;and&nbsp;get&nbsp;the&nbsp;.st_size,&nbsp;then&nbsp;sum&nbsp;it</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">this_client_size_bytes</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #50fa7b;">sum</span><span style="color: #f8f8f2;">([</span><span style="color: #f8f8f2;">f</span><span
+style="color: #f8f8f2;">.</span><span style="color: #50fa7b;">stat</span><span style="color: #f8f8f2;">().</span><span
+style="color: #f8f8f2;">st_size</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">for</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">f</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">in</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">homedir</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">glob</span><span style="color: #f8f8f2;">(</span><span style="color: #e9f284;">"</span><span
+style="color: #f1fa8c;">**/*</span><span style="color: #e9f284;">"</span><span style="color: #f8f8f2;">)])</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Divide&nbsp;the&nbsp;bytes&nbsp;to&nbsp;get&nbsp;megs</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">this_client</span><span style="color: #f8f8f2;">[</span><span
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">size_megs</span><span
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">]&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #8be9fd;">int</span><span style="color: #f8f8f2;">(</span><span style="color: #f8f8f2;">this_client_size_bytes</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">/</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #bd93f9;">1024</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">/</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #bd93f9;">1024</span><span
+style="color: #f8f8f2;">)</span></div><br><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Check&nbsp;to&nbsp;see&nbsp;if&nbsp;this&nbsp;starts&nbsp;with&nbsp;e.g.&nbsp;"pk"&nbsp;&nbsp;(and&nbsp;isn't&nbsp;in&nbsp;the&nbsp;list&nbsp;of&nbsp;ignored&nbsp;users)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;--&nbsp;maps&nbsp;all&nbsp;to&nbsp;lowercase&nbsp;--</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #ff79c6;">if</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">homedir</span><span style="color: #f8f8f2;">.</span><span
+style="color: #f8f8f2;">name</span><span style="color: #f8f8f2;">.</span><span style="color: #50fa7b;">casefold</span><span
+style="color: #f8f8f2;">().</span><span style="color: #50fa7b;">startswith</span><span
+style="color: #f8f8f2;">(</span><span style="color: #f8f8f2;">homedir_stringstart</span><span
+style="color: #f8f8f2;">.</span><span style="color: #50fa7b;">casefold</span><span
+style="color: #f8f8f2;">())&nbsp;</span><span style="color: #ff79c6;">and</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">not</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #f8f8f2;">homedir</span><span
+style="color: #f8f8f2;">.</span><span style="color: #f8f8f2;">name</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">casefold</span><span style="color: #f8f8f2;">()&nbsp;</span><span
+style="color: #ff79c6;">in</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #8be9fd;">map</span><span style="color: #f8f8f2;">(</span><span style="color: #8be9fd;">str</span><span
+style="color: #f8f8f2;">.</span><span style="color: #50fa7b;">casefold</span><span
+style="color: #f8f8f2;">,&nbsp;</span><span style="color: #f8f8f2;">ignore_users</span><span
+style="color: #f8f8f2;">):</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Ths&nbsp;is&nbsp;a&nbsp;valid&nbsp;client&nbsp;-&nbsp;let's&nbsp;keep&nbsp;going</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">this_client</span><span style="color: #f8f8f2;">[</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">clientid_exists_in_filesystem</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">]&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #bd93f9;">True</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Keeping&nbsp;track&nbsp;of&nbsp;what's&nbsp;where</span></div><br><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">my_last_upload_unixtime</span><span style="color: #ff79c6;">=</span><span
+style="color: #8be9fd;">int</span><span style="color: #f8f8f2;">(</span><span style="color: #50fa7b;">latest_file</span><span
+style="color: #f8f8f2;">(</span><span style="color: #f8f8f2;">homedir</span><span
+style="color: #f8f8f2;">).</span><span style="color: #50fa7b;">stat</span><span
+style="color: #f8f8f2;">().</span><span style="color: #f8f8f2;">st_mtime</span><span
+style="color: #f8f8f2;">)</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">my_last_upload_datetime</span><span style="color: #ff79c6;">=</span><span
+style="color: #8be9fd;">datetime</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">fromtimestamp</span><span style="color: #f8f8f2;">(</span><span
+style="color: #f8f8f2;">my_last_upload_unixtime</span><span style="color: #f8f8f2;">)</span></div><br><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">this_client</span><span style="color: #f8f8f2;">[</span><span
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">last_upload_unixtime</span><span
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">]</span><span style="color: #ff79c6;">=</span><span
+style="color: #f8f8f2;">my_last_upload_unixtime</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">this_client</span><span style="color: #f8f8f2;">[</span><span
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">last_upload</span><span
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">]</span><span style="color: #ff79c6;">=</span><span
+style="color: #8be9fd;">datetime</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">fromtimestamp</span><span style="color: #f8f8f2;">(</span><span
+style="color: #f8f8f2;">my_last_upload_unixtime</span><span style="color: #f8f8f2;">)</span></div><br><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Is&nbsp;the&nbsp;last&nbsp;upload&nbsp;newer&nbsp;than&nbsp;the&nbsp;stale_file_cutoff&nbsp;(defined&nbsp;in&nbsp;init&nbsp;via&nbsp;'upload_stale_days')?</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">this_client</span><span style="color: #f8f8f2;">[</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">uploads_are_current</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">]&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">my_last_upload_datetime</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">&gt;</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">stale_file_cutoff</span></div><br><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Replace&nbsp;the&nbsp;*first*&nbsp;occurence&nbsp;of&nbsp;the&nbsp;client-related&nbsp;prefix&nbsp;with&nbsp;(nothing)</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;and&nbsp;remove&nbsp;leading&nbsp;zeroes</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">this_client_id</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">homedir</span><span style="color: #f8f8f2;">.</span><span
+style="color: #f8f8f2;">name</span><span style="color: #f8f8f2;">.</span><span style="color: #50fa7b;">replace</span><span
+style="color: #f8f8f2;">(</span><span style="color: #f8f8f2;">homedir_stringstart</span><span
+style="color: #f8f8f2;">,</span><span style="color: #e9f284;">''</span><span style="color: #f8f8f2;">,</span><span
+style="color: #bd93f9;">1</span><span style="color: #f8f8f2;">).</span><span style="color: #50fa7b;">lstrip</span><span
+style="color: #f8f8f2;">(</span><span style="color: #e9f284;">'</span><span style="color: #f1fa8c;">0</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">)</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">this_client</span><span style="color: #f8f8f2;">[</span><span
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">id</span><span style="color: #e9f284;">"</span><span
+style="color: #f8f8f2;">]&nbsp;</span><span style="color: #ff79c6;">=</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #f8f8f2;">this_client_id</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">all_client_ids</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">add</span><span style="color: #f8f8f2;">(</span><span style="color: #f8f8f2;">this_client_id</span><span
+style="color: #f8f8f2;">)&nbsp;</span><span style="color: #6272a4;">#&nbsp;Add&nbsp;this&nbsp;to&nbsp;our&nbsp;set&nbsp;of&nbsp;all&nbsp;client&nbsp;IDs</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">filesystem_client_ids</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">add</span><span style="color: #f8f8f2;">(</span><span style="color: #f8f8f2;">this_client_id</span><span
+style="color: #f8f8f2;">)&nbsp;</span><span style="color: #6272a4;">#&nbsp;Add&nbsp;to&nbsp;the&nbsp;filesystem&nbsp;client&nbsp;IDs&nbsp;list</span></div><br><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">client_fs_report_list</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">append</span><span style="color: #f8f8f2;">(</span><span
+style="color: #f8f8f2;">this_client</span><span style="color: #f8f8f2;">)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Add&nbsp;to&nbsp;our&nbsp;report&nbsp;list</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">client_fs_report_dict</span><span style="color: #f8f8f2;">[</span><span
+style="color: #f8f8f2;">this_client_id</span><span style="color: #f8f8f2;">]&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">this_client</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;and&nbsp;our&nbsp;report&nbsp;dict</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #ff79c6;">else</span><span style="color: #f8f8f2;">:</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #50fa7b;">print</span><span style="color: #f8f8f2;">(</span><span
+style="color: #ff79c6;">f</span><span style="color: #f1fa8c;">"</span><span style="color: #bd93f9;">{</span><span
+style="color: #f8f8f2;">this_client</span><span style="color: #f8f8f2;">[</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">homedir_posix</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">]</span><span style="color: #bd93f9;">}</span><span
+style="color: #f1fa8c;">&nbsp;is&nbsp;not&nbsp;a&nbsp;valid&nbsp;client&nbsp;-&nbsp;doesn't&nbsp;start&nbsp;with&nbsp;</span><span
+style="color: #bd93f9;">{</span><span style="color: #f8f8f2;">homedir_stringstart</span><span
+style="color: #bd93f9;">}</span><span style="color: #f1fa8c;">&nbsp;or&nbsp;is&nbsp;in&nbsp;</span><span
+style="color: #ff79c6;">\"</span><span style="color: #f1fa8c;">ignore_users</span><span
+style="color: #ff79c6;">\"</span><span style="color: #f1fa8c;">"</span><span style="color: #f8f8f2;">)</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">#&nbsp;Real&nbsp;or&nbsp;not,&nbsp;let's&nbsp;go&nbsp;on.&nbsp;This&nbsp;is&nbsp;just&nbsp;testing&nbsp;code,&nbsp;to&nbsp;limit&nbsp;our&nbsp;results&nbsp;to&nbsp;the&nbsp;first&nbsp;~4</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #f8f8f2;">i</span><span
+style="color: #ff79c6;">+=</span><span style="color: #bd93f9;">1</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">if</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #f8f8f2;">max_results</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">&gt;</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #bd93f9;">0</span><span
+style="color: #f8f8f2;">:&nbsp;</span><span style="color: #6272a4;">#&nbsp;Are&nbsp;we&nbsp;limiting&nbsp;the&nbsp;maximum&nbsp;results?&nbsp;Break,&nbsp;if&nbsp;we're&nbsp;over&nbsp;it</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #ff79c6;">if</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">i</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">&gt;</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #bd93f9;">4</span><span style="color: #f8f8f2;">:&nbsp;</span><span
+style="color: #ff79c6;">break</span></div><br><div><span style="color: #6272a4;">#&nbsp;Handle&nbsp;adding&nbsp;custom_clients&nbsp;to&nbsp;the&nbsp;report&nbsp;array&nbsp;above</span></div><div><span
+style="color: #ff79c6;">if</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">add_custom_clients</span><span style="color: #f8f8f2;">:</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">for</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #f8f8f2;">this_custom_client</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">in</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #f8f8f2;">custom_clients</span><span
+style="color: #f8f8f2;">:</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">this_client</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">this_custom_client</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Our&nbsp;new&nbsp;/&nbsp;expanding&nbsp;dictionary&nbsp;for&nbsp;this&nbsp;client</span></div><br><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">this_client</span><span style="color: #f8f8f2;">[</span><span
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">clientid_exists_in_custom_clients</span><span
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">]&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #bd93f9;">True</span></div><br><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">this_client_id</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">this_custom_client</span><span style="color: #f8f8f2;">[</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">id</span><span style="color: #e9f284;">'</span><span
+style="color: #f8f8f2;">]</span></div><br><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Pull&nbsp;the&nbsp;needed&nbsp;info&nbsp;from&nbsp;our&nbsp;custom&nbsp;definition</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">homedir</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #8be9fd;">Path</span><span style="color: #f8f8f2;">(</span><span style="color: #f8f8f2;">this_custom_client</span><span
+style="color: #f8f8f2;">[</span><span style="color: #e9f284;">'</span><span style="color: #f1fa8c;">homedir_posix</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">])</span></div><br><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #ff79c6;">if</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">not</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">homedir</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">exists</span><span style="color: #f8f8f2;">():</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #50fa7b;">print</span><span style="color: #f8f8f2;">(</span><span
+style="color: #ff79c6;">f</span><span style="color: #f1fa8c;">"WARNING:&nbsp;Attempt&nbsp;to&nbsp;add&nbsp;'custom_client'&nbsp;with&nbsp;id&nbsp;</span><span
+style="color: #bd93f9;">{</span><span style="color: #f8f8f2;">this_client_id</span><span
+style="color: #bd93f9;">}</span><span style="color: #f1fa8c;">&nbsp;failed."</span><span
+style="color: #f8f8f2;">)</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #50fa7b;">print</span><span style="color: #f8f8f2;">(</span><span
+style="color: #ff79c6;">f</span><span style="color: #f1fa8c;">"Path&nbsp;</span><span
+style="color: #bd93f9;">{</span><span style="color: #f8f8f2;">this_client</span><span
+style="color: #f8f8f2;">[</span><span style="color: #e9f284;">'</span><span style="color: #f1fa8c;">homedir_posix</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">]</span><span style="color: #bd93f9;">}</span><span
+style="color: #f1fa8c;">&nbsp;does&nbsp;not&nbsp;exist)"</span><span style="color: #f8f8f2;">)</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #ff79c6;">else</span><span style="color: #f8f8f2;">:</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">all_client_ids</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">add</span><span style="color: #f8f8f2;">(</span><span style="color: #f8f8f2;">this_client_id</span><span
+style="color: #f8f8f2;">)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Add&nbsp;to&nbsp;the&nbsp;master&nbsp;client_id&nbsp;set</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">filesystem_client_ids</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">add</span><span style="color: #f8f8f2;">(</span><span style="color: #f8f8f2;">this_client_id</span><span
+style="color: #f8f8f2;">)&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">#&nbsp;and&nbsp;the&nbsp;filesystem-sourced&nbsp;one</span></div><br><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">this_client</span><span style="color: #f8f8f2;">[</span><span
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">size_bytes</span><span
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">]&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #50fa7b;">sum</span><span style="color: #f8f8f2;">([</span><span style="color: #f8f8f2;">f</span><span
+style="color: #f8f8f2;">.</span><span style="color: #50fa7b;">stat</span><span style="color: #f8f8f2;">().</span><span
+style="color: #f8f8f2;">st_size</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">for</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">f</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">in</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">homedir</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">glob</span><span style="color: #f8f8f2;">(</span><span style="color: #e9f284;">"</span><span
+style="color: #f1fa8c;">**/*</span><span style="color: #e9f284;">"</span><span style="color: #f8f8f2;">)])</span></div><br><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">my_last_upload_unixtime</span><span style="color: #ff79c6;">=</span><span
+style="color: #8be9fd;">int</span><span style="color: #f8f8f2;">(</span><span style="color: #50fa7b;">latest_file</span><span
+style="color: #f8f8f2;">(</span><span style="color: #f8f8f2;">homedir</span><span
+style="color: #f8f8f2;">).</span><span style="color: #50fa7b;">stat</span><span
+style="color: #f8f8f2;">().</span><span style="color: #f8f8f2;">st_mtime</span><span
+style="color: #f8f8f2;">)</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">my_last_upload_datetime</span><span style="color: #ff79c6;">=</span><span
+style="color: #8be9fd;">datetime</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">fromtimestamp</span><span style="color: #f8f8f2;">(</span><span
+style="color: #f8f8f2;">my_last_upload_unixtime</span><span style="color: #f8f8f2;">)</span></div><br><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">this_client</span><span style="color: #f8f8f2;">[</span><span
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">last_upload_unixtime</span><span
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">]</span><span style="color: #ff79c6;">=</span><span
+style="color: #f8f8f2;">my_last_upload_unixtime</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">this_client</span><span style="color: #f8f8f2;">[</span><span
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">last_upload</span><span
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">]</span><span style="color: #ff79c6;">=</span><span
+style="color: #8be9fd;">datetime</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">fromtimestamp</span><span style="color: #f8f8f2;">(</span><span
+style="color: #f8f8f2;">my_last_upload_unixtime</span><span style="color: #f8f8f2;">)</span></div><br><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Is&nbsp;the&nbsp;last&nbsp;upload&nbsp;newer&nbsp;than&nbsp;the&nbsp;stale_file_cutoff&nbsp;(defined&nbsp;in&nbsp;init&nbsp;via&nbsp;'upload_stale_days')?</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">this_client</span><span style="color: #f8f8f2;">[</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">uploads_are_current</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">]&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">my_last_upload_datetime</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">&gt;</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">stale_file_cutoff</span></div><br><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">client_fs_report_list</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">append</span><span style="color: #f8f8f2;">(</span><span
+style="color: #f8f8f2;">this_client</span><span style="color: #f8f8f2;">)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Add&nbsp;to&nbsp;our&nbsp;report&nbsp;list</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">client_fs_report_dict</span><span style="color: #f8f8f2;">[</span><span
+style="color: #f8f8f2;">this_client_id</span><span style="color: #f8f8f2;">]&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">this_client</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;and&nbsp;our&nbsp;report&nbsp;dict</span></div><br><div><span
+style="color: #6272a4;">#&nbsp;Start&nbsp;import&nbsp;of&nbsp;client&nbsp;definitions&nbsp;(provided&nbsp;by&nbsp;client)</span></div><br><div><span
+style="color: #f8f8f2;">client_definition_list</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;[]&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;We&nbsp;start&nbsp;with&nbsp;an&nbsp;array;&nbsp;we&nbsp;will&nbsp;convert&nbsp;to&nbsp;a&nbsp;dictionary&nbsp;soon</span></div><div><span
+style="color: #f8f8f2;">imported_csv_ids</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #8be9fd;">set</span><span style="color: #f8f8f2;">()&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;The&nbsp;set&nbsp;of&nbsp;all&nbsp;client&nbsp;IDs&nbsp;we&nbsp;have&nbsp;in&nbsp;the&nbsp;import</span></div><br><div><span
+style="color: #ff79c6;">with</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #50fa7b;">open</span><span style="color: #f8f8f2;">(</span><span style="color: #f8f8f2;">client_definition_csv</span><span
+style="color: #f8f8f2;">,</span><span style="color: #ffb86c;font-style: italic;">newline</span><span
+style="color: #ff79c6;">=</span><span style="color: #e9f284;">''</span><span style="color: #f8f8f2;">,</span><span
+style="color: #ffb86c;font-style: italic;">encoding</span><span style="color: #ff79c6;">=</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">utf-8-sig</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">)&nbsp;</span><span
+style="color: #ff79c6;">as</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">csv_input_obj</span><span style="color: #f8f8f2;">:</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #f8f8f2;">csv_dictreader_obj</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">=</span><span
+style="color: #f8f8f2;">&nbsp;csv.</span><span style="color: #8be9fd;">DictReader</span><span
+style="color: #f8f8f2;">(</span><span style="color: #f8f8f2;">csv_input_obj</span><span
+style="color: #f8f8f2;">)</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #ff79c6;">for</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">row</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">in</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">csv_dictreader_obj</span><span style="color: #f8f8f2;">:</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Remap&nbsp;our&nbsp;values&nbsp;from&nbsp;the&nbsp;imported_csv_fieldmapping&nbsp;dictionary</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">remapped_client_dict</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;{}</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #ff79c6;">for</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">source_field_key</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">in</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">imported_csv_field_mapping</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">keys</span><span style="color: #f8f8f2;">():</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">target_key</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">imported_csv_field_mapping</span><span style="color: #f8f8f2;">[</span><span
+style="color: #f8f8f2;">source_field_key</span><span style="color: #f8f8f2;">]</span></div><br><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">remapped_client_dict</span><span style="color: #f8f8f2;">[</span><span
+style="color: #f8f8f2;">target_key</span><span style="color: #f8f8f2;">]</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">row</span><span style="color: #f8f8f2;">[</span><span
+style="color: #f8f8f2;">source_field_key</span><span style="color: #f8f8f2;">]</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">client_definition_list</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">append</span><span style="color: #f8f8f2;">(</span><span
+style="color: #f8f8f2;">remapped_client_dict</span><span style="color: #f8f8f2;">)</span></div><br><div><span
+style="color: #6272a4;">#&nbsp;Convert&nbsp;imported&nbsp;CSV&nbsp;data&nbsp;to&nbsp;id-based&nbsp;dictionary</span></div><div><span
+style="color: #f8f8f2;">client_definition_dict</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;{}</span></div><div><span
+style="color: #ff79c6;">for</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">this_client_def</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">in</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">client_definition_list</span><span style="color: #f8f8f2;">:&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Iterate&nbsp;through&nbsp;each&nbsp;"row"&nbsp;of&nbsp;the&nbsp;import&nbsp;data</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">#&nbsp;Check&nbsp;if&nbsp;this&nbsp;row&nbsp;has&nbsp;a&nbsp;key&nbsp;/&nbsp;ID&nbsp;&nbsp;(missing&nbsp;dict&nbsp;key&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;then&nbsp;empty&nbsp;string)</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">if</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">not</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">'</span><span
+style="color: #f1fa8c;">id</span><span style="color: #e9f284;">'</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">in</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">this_client_def</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">or</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">this_client_def</span><span style="color: #f8f8f2;">[</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">id</span><span style="color: #e9f284;">'</span><span
+style="color: #f8f8f2;">]&nbsp;</span><span style="color: #ff79c6;">==</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">''</span><span
+style="color: #f8f8f2;">:</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #50fa7b;">print</span><span style="color: #f8f8f2;">(</span><span
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">WARNING:&nbsp;The&nbsp;following&nbsp;client&nbsp;line&nbsp;entry&nbsp;does&nbsp;not&nbsp;contain&nbsp;an&nbsp;ID&nbsp;-&nbsp;skipping!</span><span
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">)</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #50fa7b;">print</span><span style="color: #f8f8f2;">(</span><span
+style="color: #f8f8f2;">this_client_def</span><span style="color: #f8f8f2;">)</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">else</span><span
+style="color: #f8f8f2;">:</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Get&nbsp;the&nbsp;current&nbsp;row&nbsp;ID&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(and&nbsp;strip&nbsp;leading&nbsp;"0"s)</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">this_client_id</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">this_client_def</span><span style="color: #f8f8f2;">[</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">id</span><span style="color: #e9f284;">'</span><span
+style="color: #f8f8f2;">].</span><span style="color: #50fa7b;">lstrip</span><span
+style="color: #f8f8f2;">(</span><span style="color: #e9f284;">'</span><span style="color: #f1fa8c;">0</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">)</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">all_client_ids</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">add</span><span style="color: #f8f8f2;">(</span><span style="color: #f8f8f2;">this_client_id</span><span
+style="color: #f8f8f2;">)&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">#&nbsp;Add&nbsp;this&nbsp;ID&nbsp;to&nbsp;the&nbsp;all_client_ids&nbsp;set</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">imported_csv_ids</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">add</span><span style="color: #f8f8f2;">(</span><span style="color: #f8f8f2;">this_client_id</span><span
+style="color: #f8f8f2;">)&nbsp;</span><span style="color: #6272a4;">#&nbsp;and&nbsp;to&nbsp;the&nbsp;imported_csv_ids&nbsp;set</span></div><br><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Do&nbsp;we&nbsp;have&nbsp;a&nbsp;duplicate&nbsp;client&nbsp;ID?&nbsp;Check&nbsp;the&nbsp;existing&nbsp;dict.</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #ff79c6;">if</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">this_client_id</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">in</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">client_definition_dict</span><span style="color: #f8f8f2;">:</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #50fa7b;">print</span><span style="color: #f8f8f2;">(</span><span
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">WARNING:&nbsp;duplicate&nbsp;client&nbsp;ID&nbsp;found&nbsp;-&nbsp;skipping!&nbsp;Existing&nbsp;row:</span><span
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">)</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #50fa7b;">print</span><span style="color: #f8f8f2;">(</span><span
+style="color: #f8f8f2;">client_definition_dict</span><span style="color: #f8f8f2;">[</span><span
+style="color: #f8f8f2;">this_client_id</span><span style="color: #f8f8f2;">])</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #50fa7b;">print</span><span style="color: #f8f8f2;">(</span><span
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">Skipped&nbsp;row/client:</span><span
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">)</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #50fa7b;">print</span><span style="color: #f8f8f2;">(</span><span
+style="color: #f8f8f2;">this_client_def</span><span style="color: #f8f8f2;">)</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #ff79c6;">else</span><span style="color: #f8f8f2;">:</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Looks&nbsp;like&nbsp;we're&nbsp;good,&nbsp;we&nbsp;should&nbsp;be&nbsp;able&nbsp;to&nbsp;create&nbsp;this&nbsp;as&nbsp;an&nbsp;entry&nbsp;in&nbsp;our&nbsp;client&nbsp;definition</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;We&nbsp;will&nbsp;have&nbsp;a&nbsp;redundant&nbsp;'id'&nbsp;field&nbsp;(it's&nbsp;also&nbsp;the&nbsp;key)&nbsp;-&nbsp;not&nbsp;a&nbsp;problem</span></div><br><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">client_definition_dict</span><span style="color: #f8f8f2;">[</span><span
+style="color: #f8f8f2;">this_client_id</span><span style="color: #f8f8f2;">]&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">this_client_def</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">client_definition_dict</span><span style="color: #f8f8f2;">[</span><span
+style="color: #f8f8f2;">this_client_id</span><span style="color: #f8f8f2;">][</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">clientid_exists_in_clientcsv</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">]&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #bd93f9;">True</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Tracking&nbsp;who&nbsp;is&nbsp;where</span></div><br><br><div><span
+style="color: #6272a4;">#&nbsp;Save&nbsp;the&nbsp;filesystem&nbsp;report&nbsp;of&nbsp;all&nbsp;clients</span></div><br><div><span
+style="color: #ff79c6;">with</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #50fa7b;">open</span><span style="color: #f8f8f2;">(</span><span style="color: #f8f8f2;">csv_fs_report_outfile</span><span
+style="color: #f8f8f2;">,&nbsp;</span><span style="color: #e9f284;">'</span><span
+style="color: #f1fa8c;">w</span><span style="color: #e9f284;">'</span><span style="color: #f8f8f2;">,&nbsp;</span><span
+style="color: #ffb86c;font-style: italic;">newline</span><span style="color: #ff79c6;">=</span><span
+style="color: #e9f284;">''</span><span style="color: #f8f8f2;">)&nbsp;</span><span
+style="color: #ff79c6;">as</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">csv_out_obj</span><span style="color: #f8f8f2;">:</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">#&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;VV&nbsp;&nbsp;Only&nbsp;these&nbsp;fields&nbsp;-&nbsp;skip&nbsp;any&nbsp;others&nbsp;VV</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #f8f8f2;">csv_dictwriter_obj</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">=</span><span
+style="color: #f8f8f2;">&nbsp;csv.</span><span style="color: #8be9fd;">DictWriter</span><span
+style="color: #f8f8f2;">(</span><span style="color: #f8f8f2;">csv_out_obj</span><span
+style="color: #f8f8f2;">,</span><span style="color: #ffb86c;font-style: italic;">fieldnames</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">report_fields</span><span
+style="color: #f8f8f2;">,</span><span style="color: #ffb86c;font-style: italic;">extrasaction</span><span
+style="color: #ff79c6;">=</span><span style="color: #e9f284;">'</span><span style="color: #f1fa8c;">ignore</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">)</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #f8f8f2;">csv_dictwriter_obj</span><span
+style="color: #f8f8f2;">.</span><span style="color: #50fa7b;">writeheader</span><span
+style="color: #f8f8f2;">()</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #ff79c6;">for</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">client_obj</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">in</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">client_fs_report_list</span><span style="color: #f8f8f2;">:</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">csv_dictwriter_obj</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">writerow</span><span style="color: #f8f8f2;">(</span><span
+style="color: #f8f8f2;">client_obj</span><span style="color: #f8f8f2;">)</span></div><br><div><span
+style="color: #6272a4;">###&nbsp;Start&nbsp;generating&nbsp;master&nbsp;report</span></div><br><div><span
+style="color: #6272a4;">#&nbsp;Create&nbsp;sorted&nbsp;version&nbsp;of&nbsp;all_client_ids</span></div><div><span
+style="color: #6272a4;">#&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;VV&nbsp;cast&nbsp;to&nbsp;list&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;lambda&nbsp;returns&nbsp;tuple,&nbsp;to&nbsp;do&nbsp;'numeric&nbsp;string&nbsp;sort'</span></div><div><span
+style="color: #f8f8f2;">all_client_ids_sorted</span><span style="color: #ff79c6;">=</span><span
+style="color: #50fa7b;">sorted</span><span style="color: #f8f8f2;">(</span><span
+style="color: #8be9fd;">list</span><span style="color: #f8f8f2;">(</span><span style="color: #f8f8f2;">all_client_ids</span><span
+style="color: #f8f8f2;">),</span><span style="color: #ffb86c;font-style: italic;">key</span><span
+style="color: #ff79c6;">=lambda</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ffb86c;font-style: italic;">x</span><span style="color: #f8f8f2;">:(</span><span
+style="color: #50fa7b;">len</span><span style="color: #f8f8f2;">(</span><span style="color: #ffb86c;font-style: italic;">x</span><span
+style="color: #f8f8f2;">),</span><span style="color: #ffb86c;font-style: italic;">x</span><span
+style="color: #f8f8f2;">))</span></div><br><div><span style="color: #f8f8f2;">master_report_dict</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">=</span><span
+style="color: #f8f8f2;">&nbsp;{}</span></div><div><span style="color: #f8f8f2;">master_report_list</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">=</span><span
+style="color: #f8f8f2;">&nbsp;[]&nbsp;</span><span style="color: #6272a4;">#&nbsp;probably&nbsp;not&nbsp;needed,&nbsp;but&nbsp;using&nbsp;anyway</span></div><br><div><span
+style="color: #f8f8f2;">clients_missing_from_csv</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;[]&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;for&nbsp;our&nbsp;secondary&nbsp;output&nbsp;CSVs&nbsp;</span></div><div><span
+style="color: #f8f8f2;">clients_no_current_uploads</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;[]&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;with&nbsp;specific&nbsp;purposes</span></div><div><span
+style="color: #f8f8f2;">clients_on_csv_with_no_folder</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;[]</span></div><br><div><span
+style="color: #ff79c6;">for</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">client_id</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">in</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">all_client_ids_sorted</span><span style="color: #f8f8f2;">:</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">#&nbsp;Reset&nbsp;import-decision&nbsp;variables</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #f8f8f2;">this_client_dict</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">=</span><span
+style="color: #f8f8f2;">&nbsp;{}</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">do_clientdefinition_datainject</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #bd93f9;">True</span><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;We&nbsp;do&nbsp;these&nbsp;by&nbsp;default&nbsp;-&nbsp;we&nbsp;set&nbsp;to</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #f8f8f2;">do_filesystem_datainject</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">=</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #bd93f9;">True</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #6272a4;">#&nbsp;False&nbsp;below&nbsp;if&nbsp;they're&nbsp;missing</span></div><br><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">if</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">not</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #f8f8f2;">client_id</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">in</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #f8f8f2;">imported_csv_ids</span><span
+style="color: #f8f8f2;">:</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #50fa7b;">print</span><span style="color: #f8f8f2;">(</span><span
+style="color: #ff79c6;">f</span><span style="color: #f1fa8c;">"Client&nbsp;ID:</span><span
+style="color: #bd93f9;">{</span><span style="color: #f8f8f2;">client_id</span><span
+style="color: #bd93f9;">}</span><span style="color: #f1fa8c;">&nbsp;is&nbsp;missing&nbsp;missing&nbsp;from&nbsp;imported&nbsp;CSV!"</span><span
+style="color: #f8f8f2;">)</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">this_client_dict</span><span style="color: #f8f8f2;">[</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">clientid_exists_in_clientcsv</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">]&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #bd93f9;">False</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">this_client_dict</span><span style="color: #f8f8f2;">[</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">missing_from_imported_csv</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">]&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #bd93f9;">True</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">do_clientdefinition_datainject</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #bd93f9;">False</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #ff79c6;">else</span><span style="color: #f8f8f2;">:</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">this_client_dict</span><span style="color: #f8f8f2;">[</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">missing_from_imported_csv</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">]&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #bd93f9;">False</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;We&nbsp;have&nbsp;the&nbsp;data</span></div><br><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">if</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">not</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #f8f8f2;">client_id</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">in</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #f8f8f2;">filesystem_client_ids</span><span
+style="color: #f8f8f2;">:</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #50fa7b;">print</span><span style="color: #f8f8f2;">(</span><span
+style="color: #ff79c6;">f</span><span style="color: #f1fa8c;">"Client&nbsp;ID:</span><span
+style="color: #bd93f9;">{</span><span style="color: #f8f8f2;">client_id</span><span
+style="color: #bd93f9;">}</span><span style="color: #f1fa8c;">&nbsp;existed&nbsp;in&nbsp;imported&nbsp;CSV,&nbsp;but&nbsp;is&nbsp;missing&nbsp;from&nbsp;filesystem!"</span><span
+style="color: #f8f8f2;">)</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">this_client_dict</span><span style="color: #f8f8f2;">[</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">clientid_exists_in_filesystem</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">]&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #bd93f9;">False</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">this_client_dict</span><span style="color: #f8f8f2;">[</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">missing_on_server</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">]&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #bd93f9;">True</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">do_filesystem_datainject</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #bd93f9;">False</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #ff79c6;">else</span><span style="color: #f8f8f2;">:</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">this_client_dict</span><span style="color: #f8f8f2;">[</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">missing_on_server</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">]&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #bd93f9;">False</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Must&nbsp;be&nbsp;true&nbsp;</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #ff79c6;">if</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">do_filesystem_datainject</span><span style="color: #f8f8f2;">:</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Merge&nbsp;in&nbsp;the&nbsp;contents&nbsp;from&nbsp;the&nbsp;client_fs_report(_dict)</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">this_client_dict</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">update</span><span style="color: #f8f8f2;">(</span><span
+style="color: #f8f8f2;">client_fs_report_dict</span><span style="color: #f8f8f2;">[</span><span
+style="color: #f8f8f2;">client_id</span><span style="color: #f8f8f2;">])</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">if</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #f8f8f2;">do_clientdefinition_datainject</span><span
+style="color: #f8f8f2;">:</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Merge&nbsp;in&nbsp;the&nbsp;contents&nbsp;from&nbsp;the&nbsp;client_fs_report(_dict)</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">this_client_dict</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">update</span><span style="color: #f8f8f2;">(</span><span
+style="color: #f8f8f2;">client_definition_dict</span><span style="color: #f8f8f2;">[</span><span
+style="color: #f8f8f2;">client_id</span><span style="color: #f8f8f2;">])</span></div><br><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #f8f8f2;">master_report_dict</span><span
+style="color: #f8f8f2;">[</span><span style="color: #f8f8f2;">client_id</span><span
+style="color: #f8f8f2;">]&nbsp;</span><span style="color: #ff79c6;">=</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #f8f8f2;">this_client_dict</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #f8f8f2;">master_report_list</span><span
+style="color: #f8f8f2;">.</span><span style="color: #50fa7b;">append</span><span
+style="color: #f8f8f2;">(</span><span style="color: #f8f8f2;">this_client_dict</span><span
+style="color: #f8f8f2;">)</span></div><br><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">##&nbsp;</span><span style="color: #ff79c6;">TODO</span><span
+style="color: #6272a4;">&nbsp;-&nbsp;REDO&nbsp;THIS&nbsp;LOGIC&nbsp;BLOCK&nbsp;WITH&nbsp;BETTER&nbsp;NAMES?</span></div><br><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">#&nbsp;Are&nbsp;we&nbsp;missing&nbsp;from&nbsp;the&nbsp;imported&nbsp;CSV?</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">if</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #f8f8f2;">this_client_dict</span><span
+style="color: #f8f8f2;">[</span><span style="color: #e9f284;">'</span><span style="color: #f1fa8c;">missing_from_imported_csv</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">]:</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">clients_missing_from_csv</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">append</span><span style="color: #f8f8f2;">(</span><span
+style="color: #f8f8f2;">this_client_dict</span><span style="color: #f8f8f2;">)</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Do&nbsp;we&nbsp;have&nbsp;this&nbsp;client&nbsp;in&nbsp;the&nbsp;imported&nbsp;CSV,&nbsp;but&nbsp;no&nbsp;apparent&nbsp;backups/folder?</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">if</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #f8f8f2;">this_client_dict</span><span
+style="color: #f8f8f2;">[</span><span style="color: #e9f284;">'</span><span style="color: #f1fa8c;">clientid_exists_in_clientcsv</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">]:&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;(this&nbsp;is&nbsp;split&nbsp;to&nbsp;two&nbsp;lines&nbsp;to&nbsp;make&nbsp;it&nbsp;easier&nbsp;&nbsp;to&nbsp;read)</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;So&nbsp;we&nbsp;don't&nbsp;get&nbsp;a&nbsp;missing&nbsp;value:</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #ff79c6;">if</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">not</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">clientid_exists_in_filesystem</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">in</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">this_client_dict</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">or</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">not</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">this_client_dict</span><span style="color: #f8f8f2;">[</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">clientid_exists_in_filesystem</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">]:</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">clients_on_csv_with_no_folder</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">append</span><span style="color: #f8f8f2;">(</span><span
+style="color: #f8f8f2;">this_client_dict</span><span style="color: #f8f8f2;">)</span></div><div><span
+style="color: #f8f8f2;">&nbsp;</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Is&nbsp;the&nbsp;client's&nbsp;data&nbsp;out&nbsp;of&nbsp;date?</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">#&nbsp;FIRST&nbsp;check&nbsp;if&nbsp;it's&nbsp;on&nbsp;the&nbsp;server</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">if</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">not</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #f8f8f2;">this_client_dict</span><span
+style="color: #f8f8f2;">[</span><span style="color: #e9f284;">'</span><span style="color: #f1fa8c;">missing_on_server</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">]&nbsp;</span><span
+style="color: #ff79c6;">and</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">not</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">this_client_dict</span><span style="color: #f8f8f2;">[</span><span
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">uploads_are_current</span><span
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">]:</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">clients_no_current_uploads</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">append</span><span style="color: #f8f8f2;">(</span><span
+style="color: #f8f8f2;">this_client_dict</span><span style="color: #f8f8f2;">)</span></div><br><div><span
+style="color: #6272a4;">#&nbsp;Do&nbsp;we&nbsp;want&nbsp;to&nbsp;save&nbsp;reports?</span></div><div><span
+style="color: #ff79c6;">if</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">save_timestamped_reports</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">or</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">save_standard_reports</span><span style="color: #f8f8f2;">:</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #f8f8f2;">tempdir_all_output_files</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">=</span><span
+style="color: #f8f8f2;">&nbsp;[]</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #ff79c6;">with</span><span style="color: #f8f8f2;">&nbsp;tempfile.</span><span
+style="color: #8be9fd;">TemporaryDirectory</span><span style="color: #f8f8f2;">()&nbsp;</span><span
+style="color: #ff79c6;">as</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">tmp_outdir</span><span style="color: #f8f8f2;">:</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Save&nbsp;the&nbsp;MASTER&nbsp;report&nbsp;of&nbsp;all&nbsp;clients</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">tempdir_csv_master_report_outfile</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #8be9fd;">Path</span><span style="color: #f8f8f2;">(</span><span style="color: #f8f8f2;">tmp_outdir</span><span
+style="color: #f8f8f2;">)&nbsp;</span><span style="color: #ff79c6;">/</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #f8f8f2;">csv_master_report_outfile</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">tempdir_all_output_files</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">append</span><span style="color: #f8f8f2;">(</span><span
+style="color: #f8f8f2;">tempdir_csv_master_report_outfile</span><span style="color: #f8f8f2;">)&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Add&nbsp;to&nbsp;the&nbsp;master&nbsp;list</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #50fa7b;">write_dict_csv</span><span style="color: #f8f8f2;">(</span><span
+style="color: #f8f8f2;">tempdir_csv_master_report_outfile</span><span style="color: #f8f8f2;">,</span><span
+style="color: #f8f8f2;">master_report_list</span><span style="color: #f8f8f2;">,</span><span
+style="color: #f8f8f2;">report_fields</span><span style="color: #f8f8f2;">)&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Write&nbsp;the&nbsp;actual&nbsp;CSV</span></div><br><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Write&nbsp;'no_current_uploads'&nbsp;CSV</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">tempdir_csv_output_no_current_uploads</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #8be9fd;">Path</span><span style="color: #f8f8f2;">(</span><span style="color: #f8f8f2;">tmp_outdir</span><span
+style="color: #f8f8f2;">)&nbsp;</span><span style="color: #ff79c6;">/</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #f8f8f2;">csv_output_no_current_uploads</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">tempdir_all_output_files</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">append</span><span style="color: #f8f8f2;">(</span><span
+style="color: #f8f8f2;">tempdir_csv_output_no_current_uploads</span><span style="color: #f8f8f2;">)&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Add&nbsp;to&nbsp;the&nbsp;master&nbsp;list</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #50fa7b;">write_dict_csv</span><span style="color: #f8f8f2;">(</span><span
+style="color: #f8f8f2;">tempdir_csv_output_no_current_uploads</span><span style="color: #f8f8f2;">,</span><span
+style="color: #f8f8f2;">clients_no_current_uploads</span><span style="color: #f8f8f2;">,</span><span
+style="color: #f8f8f2;">report_fields</span><span style="color: #f8f8f2;">)&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Write&nbsp;the&nbsp;actual&nbsp;CSV</span></div><br><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Write&nbsp;'missing&nbsp;from&nbsp;import'&nbsp;CSV&nbsp;&nbsp;(###&nbsp;TESTING&nbsp;WITHOUT&nbsp;SPECIFYING&nbsp;REPORT&nbsp;FIELDS&nbsp;###)</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">tempdir_csv_output_missing_from_import</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #8be9fd;">Path</span><span style="color: #f8f8f2;">(</span><span style="color: #f8f8f2;">tmp_outdir</span><span
+style="color: #f8f8f2;">)&nbsp;</span><span style="color: #ff79c6;">/</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #f8f8f2;">csv_output_missing_from_import</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">tempdir_all_output_files</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">append</span><span style="color: #f8f8f2;">(</span><span
+style="color: #f8f8f2;">tempdir_csv_output_missing_from_import</span><span style="color: #f8f8f2;">)</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #50fa7b;">write_dict_csv</span><span style="color: #f8f8f2;">(</span><span
+style="color: #f8f8f2;">tempdir_csv_output_missing_from_import</span><span style="color: #f8f8f2;">,</span><span
+style="color: #f8f8f2;">clients_missing_from_csv</span><span style="color: #f8f8f2;">)</span></div><br><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Write&nbsp;'exists&nbsp;in&nbsp;import&nbsp;CSV&nbsp;but&nbsp;not&nbsp;filesystem'&nbsp;CSV</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">tempdir_csv_output_on_csv_with_no_folder</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #8be9fd;">Path</span><span style="color: #f8f8f2;">(</span><span style="color: #f8f8f2;">tmp_outdir</span><span
+style="color: #f8f8f2;">)&nbsp;</span><span style="color: #ff79c6;">/</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #f8f8f2;">csv_output_on_csv_with_no_folder</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">tempdir_all_output_files</span><span style="color: #f8f8f2;">.</span><span
+style="color: #50fa7b;">append</span><span style="color: #f8f8f2;">(</span><span
+style="color: #f8f8f2;">tempdir_csv_output_on_csv_with_no_folder</span><span style="color: #f8f8f2;">)</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #50fa7b;">write_dict_csv</span><span style="color: #f8f8f2;">(</span><span
+style="color: #f8f8f2;">tempdir_csv_output_on_csv_with_no_folder</span><span style="color: #f8f8f2;">,</span><span
+style="color: #f8f8f2;">clients_on_csv_with_no_folder</span><span style="color: #f8f8f2;">)</span></div><br><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Copy&nbsp;the&nbsp;files&nbsp;to&nbsp;the&nbsp;correct&nbsp;target&nbsp;location</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #ff79c6;">for</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">temp_out_file</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">in</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">tempdir_all_output_files</span><span style="color: #f8f8f2;">:</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #ff79c6;">if</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">save_standard_reports</span><span style="color: #f8f8f2;">:&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Do&nbsp;we&nbsp;want&nbsp;to&nbsp;copy&nbsp;the&nbsp;files&nbsp;to&nbsp;the&nbsp;"standard"&nbsp;output&nbsp;directory</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #ff79c6;">pass</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#datetime.</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">out_path</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;(</span><span
+style="color: #8be9fd;">Path</span><span style="color: #f8f8f2;">(</span><span style="color: #f8f8f2;">standard_report_output_path</span><span
+style="color: #f8f8f2;">))</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #ff79c6;">if</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">not</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #8be9fd;">Path</span><span style="color: #f8f8f2;">.</span><span style="color: #50fa7b;">exists</span><span
+style="color: #f8f8f2;">(</span><span style="color: #f8f8f2;">out_path</span><span
+style="color: #f8f8f2;">):</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;os.</span><span
+style="color: #50fa7b;">mkdir</span><span style="color: #f8f8f2;">(</span><span
+style="color: #f8f8f2;">out_path</span><span style="color: #f8f8f2;">)</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;shutil.</span><span
+style="color: #50fa7b;">copy2</span><span style="color: #f8f8f2;">(</span><span
+style="color: #f8f8f2;">temp_out_file</span><span style="color: #f8f8f2;">,&nbsp;</span><span
+style="color: #f8f8f2;">out_path</span><span style="color: #f8f8f2;">)</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #ff79c6;">if</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #f8f8f2;">save_timestamped_reports</span><span style="color: #f8f8f2;">:&nbsp;</span><span
+style="color: #6272a4;">#&nbsp;Do&nbsp;we&nbsp;want&nbsp;to&nbsp;copy&nbsp;the&nbsp;files&nbsp;to&nbsp;the&nbsp;"standard"&nbsp;output&nbsp;directory</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #ff79c6;">pass</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #6272a4;">#datetime.</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #f8f8f2;">out_path</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;(</span><span
+style="color: #8be9fd;">Path</span><span style="color: #f8f8f2;">(</span><span style="color: #f8f8f2;">timestamped_report_output_path</span><span
+style="color: #f8f8f2;">)&nbsp;</span><span style="color: #ff79c6;">/</span><span
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #f8f8f2;">current_timestamp</span><span
+style="color: #f8f8f2;">&nbsp;)</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #ff79c6;">if</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #ff79c6;">not</span><span style="color: #f8f8f2;">&nbsp;</span><span
+style="color: #8be9fd;">Path</span><span style="color: #f8f8f2;">.</span><span style="color: #50fa7b;">exists</span><span
+style="color: #f8f8f2;">(</span><span style="color: #f8f8f2;">out_path</span><span
+style="color: #f8f8f2;">):</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;os.</span><span
+style="color: #50fa7b;">mkdir</span><span style="color: #f8f8f2;">(</span><span
+style="color: #f8f8f2;">out_path</span><span style="color: #f8f8f2;">)</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;shutil.</span><span
+style="color: #50fa7b;">copy2</span><span style="color: #f8f8f2;">(</span><span
+style="color: #f8f8f2;">temp_out_file</span><span style="color: #f8f8f2;">,&nbsp;</span><span
+style="color: #f8f8f2;">out_path</span><span style="color: #f8f8f2;">)</span></div><div><span
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+style="color: #8be9fd;">Path</span><span style="color: #f8f8f2;">.</span><span style="color: #50fa7b;">exists</span></div><br><div><span
+style="color: #50fa7b;">print</span><span style="color: #f8f8f2;">(</span><span
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">Script&nbsp;complete!</span><span
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">)</span></div></div>
+    <p></p>
+  </body>
+</html>
