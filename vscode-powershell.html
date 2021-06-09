@@ -1,0 +1,2248 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+    <title>vscode python take 2</title>
+    <link rel="preconnect" href="https://fonts.gstatic.com">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@200&amp;display=swap" rel="stylesheet">
+    <style>
+      body {
+				margin:20px;
+        background-color: #282a36;
+      }
+    </style>
+  </head>
+  <body>
+    <div style="color: #f8f8f2;background-color: #282a36;font-family: 'Jetbrains Mono', 'xJetbrains Mono Thin', 'Terminus (TTF) for Windows', 'xRec Mono Duotone', 'xFira Code', 'xOperator Mono', 'xCascadia Mono', 'xVictor Mono', xConsolas, 'Courier New', monospace, Consolas, 'Courier New', monospace;font-weight: 150;font-size: 12px;line-height: 17px;white-space: pre;"><div><span
+
+style="color: #6272a4;">&lt;#</span></div><br><div><span style="color: #6272a4;">&nbsp;&nbsp;This&nbsp;script&nbsp;WILL&nbsp;be&nbsp;a&nbsp;runbook&nbsp;that&nbsp;downloads&nbsp;the&nbsp;latest&nbsp;"raw"&nbsp;usage</span></div><div><span
+
+style="color: #6272a4;">&nbsp;&nbsp;report&nbsp;CSV&nbsp;(as&nbsp;generated&nbsp;from&nbsp;Azure&nbsp;Billing&nbsp;itself),&nbsp;and&nbsp;generate</span></div><div><span
+
+style="color: #6272a4;">&nbsp;&nbsp;the&nbsp;"Summary&nbsp;Report."&nbsp;(Total&nbsp;prices&nbsp;per&nbsp;resource&nbsp;ID),&nbsp;so&nbsp;it&nbsp;is</span></div><div><span
+
+style="color: #6272a4;">&nbsp;&nbsp;~500&nbsp;rows&nbsp;not&nbsp;50,000,&nbsp;and&nbsp;is&nbsp;actually&nbsp;useful.</span></div><br><div><span
+
+style="color: #6272a4;">&nbsp;&nbsp;TODO:</span></div><div><span style="color: #6272a4;">&nbsp;&nbsp;*&nbsp;Document&nbsp;"environment&nbsp;variable&nbsp;vs.&nbsp;azure&nbsp;automation&nbsp;variable&nbsp;vs&nbsp;parameter"&nbsp;priorities</span></div><div><span
+
+style="color: #6272a4;">&nbsp;&nbsp;*&nbsp;-&nbsp;TO&nbsp;BE&nbsp;IMPLEMENTED&nbsp;IN&nbsp;SEPERATE&nbsp;FUNCTION&nbsp;-</span></div><div><span
+
+style="color: #6272a4;">&nbsp;&nbsp;&nbsp;&nbsp;*&nbsp;Create&nbsp;HTML&nbsp;report&nbsp;and&nbsp;upload&nbsp;to&nbsp;Sharepoint&nbsp;etc?</span></div><br><div><span
+
+style="color: #6272a4;">################################&nbsp;&nbsp;&nbsp;&nbsp;WARNING&nbsp;!!!&nbsp;&nbsp;##################################</span></div><br><div><span
+
+style="color: #6272a4;">DO&nbsp;NOT&nbsp;&nbsp;EDIT&nbsp;THIS&nbsp;DIRECTLY&nbsp;IN&nbsp;THE&nbsp;AZURE&nbsp;RUNBOOK.&nbsp;CHANGES&nbsp;THERE&nbsp;MAY&nbsp;BE&nbsp;OVERWRITTEN!</span></div><br><div><span
+
+style="color: #6272a4;">To&nbsp;make&nbsp;changes,&nbsp;edit&nbsp;in&nbsp;Azure&nbsp;Devops,&nbsp;or&nbsp;push&nbsp;your&nbsp;edits&nbsp;to&nbsp;that&nbsp;git&nbsp;repository.</span></div><br><div><span
+
+style="color: #6272a4;">Azure&nbsp;Devops&nbsp;development&nbsp;site&nbsp;(inc.&nbsp;documentation):</span></div><div><span
+
+style="color: #6272a4;">https://dev.azure.com/Xyzelinip/XyzelinIP%20Management%20Scripts%20and%20Resources/_git/Azure-Usage-Report-Cost-Summary</span></div><br><div><span
+
+style="color: #6272a4;">###################################################################################</span></div><br><div><span
+
+style="color: #6272a4;">Download&nbsp;Multiple&nbsp;Blobs,&nbsp;merge&nbsp;per&nbsp;data&nbsp;type&nbsp;definition.</span></div><br><div><span
+
+style="color: #6272a4;">&nbsp;&nbsp;&nbsp;&nbsp;*&nbsp;Download&nbsp;multiple&nbsp;CSVs&nbsp;from&nbsp;an&nbsp;array&nbsp;of&nbsp;storage</span></div><div><span
+
+style="color: #6272a4;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;locations&nbsp;(both&nbsp;on&nbsp;this&nbsp;and&nbsp;other&nbsp;tenants)</span></div><div><span
+
+style="color: #6272a4;">&nbsp;&nbsp;&nbsp;&nbsp;*&nbsp;Convert&nbsp;data&nbsp;types&nbsp;as&nbsp;specified&nbsp;in&nbsp;JSON</span></div><div><span
+
+style="color: #6272a4;">&nbsp;&nbsp;&nbsp;&nbsp;*&nbsp;Merge&nbsp;to&nbsp;single&nbsp;array</span></div><div><span
+
+style="color: #6272a4;">&nbsp;&nbsp;&nbsp;&nbsp;*&nbsp;Export&nbsp;array&nbsp;to&nbsp;XML&nbsp;with&nbsp;data&nbsp;types</span></div><br><div><span
+
+style="color: #6272a4;">#&gt;</span></div><br><div><span style="color: #ff79c6;">Param</span><span
+
+style="color: #f8f8f2;">(</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;[</span><span
+
+style="color: #ff79c6;">string</span><span style="color: #f8f8f2;">]&nbsp;$fallbackAZUREREPORTCLIENTID&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">rxdispense</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">,&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;set&nbsp;to&nbsp;"Xyzelinip"&nbsp;or&nbsp;"rxdispense"&nbsp;-&nbsp;if&nbsp;no&nbsp;$ENV:AZUREREPORTCLIENTID,&nbsp;this&nbsp;sets&nbsp;up&nbsp;parameters&nbsp;automatically</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;</span><span style="color: #6272a4;">##&nbsp;Set&nbsp;up&nbsp;the&nbsp;client-specific&nbsp;configuration&nbsp;options&nbsp;below&nbsp;-&nbsp;selected&nbsp;$ENV:AZUREREPORTCLIENTID&nbsp;or&nbsp;by&nbsp;$fallbackAZUREREPORTCLIENTID&nbsp;if&nbsp;no&nbsp;env.&nbsp;var.&nbsp;exists</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;[</span><span style="color: #ff79c6;">hashtable</span><span
+
+style="color: #f8f8f2;">]&nbsp;$clientConfig&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">@</span><span
+
+style="color: #f8f8f2;">{</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;</span><span
+
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">Xyzelinip</span><span
+
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;[</span><span
+
+style="color: #ff79c6;">PsCustomObject</span><span style="color: #f8f8f2;">]</span><span
+
+style="color: #ff79c6;">@</span><span style="color: #f8f8f2;">{&nbsp;</span><span
+
+style="color: #6272a4;">##&nbsp;This&nbsp;is&nbsp;a&nbsp;monthly&nbsp;export&nbsp;-&nbsp;prev.&nbsp;month&nbsp;cost</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;ClientName&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">XyzelinIP,&nbsp;LLC</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #6272a4;">#&nbsp;Simple&nbsp;client&nbsp;descriptive&nbsp;name&nbsp;(for&nbsp;report&nbsp;text)</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;StorageAcctName&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">Xyzipbillingandusage</span><span
+
+style="color: #e9f284;">"</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;KeyResourceGroupName&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">billingandusage</span><span
+
+style="color: #e9f284;">"</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;StorageContainer&nbsp;&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">Xyzip-export</span><span
+
+style="color: #e9f284;">"</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;StoragePrefix&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">monthlyexportlastmousage/MonthlyExportLastMoCost/</span><span
+
+style="color: #e9f284;">"</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;AuthType&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">Account</span><span
+
+style="color: #e9f284;">"</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;TenantId&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">abcdabcde-ad9f-4907-a097-abcdabcde</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;If&nbsp;you're&nbsp;testing&nbsp;this&nbsp;locally,&nbsp;connect&nbsp;and&nbsp;use&nbsp;thi</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;SubscriptionId&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">defdef01-ddb8-47fc-8d88-defdef0121</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;tenant&nbsp;and&nbsp;subscription&nbsp;for&nbsp;Az&nbsp;context</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;UniqueIdentifierFieldName&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">resourceId</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;The&nbsp;unique&nbsp;identifier&nbsp;for&nbsp;each&nbsp;resource.</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;SummaryReportBillingColumn&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">costInUsd</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;The&nbsp;column&nbsp;used&nbsp;for&nbsp;the&nbsp;cost&nbsp;field&nbsp;in&nbsp;the&nbsp;above&nbsp;summary&nbsp;report</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;}</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;</span><span
+
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">rxdispense</span><span
+
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;[</span><span
+
+style="color: #ff79c6;">PsCustomObject</span><span style="color: #f8f8f2;">]</span><span
+
+style="color: #ff79c6;">@</span><span style="color: #f8f8f2;">{</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;ClientName&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">RXDispense</span><span style="color: #e9f284;">"</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;StorageAcctName&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">rxdusage</span><span
+
+style="color: #e9f284;">"</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;StorageContainer&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">rxd-export</span><span
+
+style="color: #e9f284;">"</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;StoragePrefix&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">monthlyexportlastmousage/MonthlyExportLastMoCost/</span><span
+
+style="color: #e9f284;">"</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;AuthType&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">Key</span><span style="color: #e9f284;">"</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;StorageAccountKey&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">+LOLOL+LOL NOPE/NOPE NOPE NOPE LOL==</span><span
+
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;Key1&nbsp;-&nbsp;2020-10-16&nbsp;#&gt;</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;TenantId&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">abcdabc-e866-4ab3-b2fe-012381437132</span><span
+
+style="color: #e9f284;">"</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;SubscriptionId&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">3249acc-329c-46fd-b45f-7a8c8e9d97e7</span><span
+
+style="color: #e9f284;">"</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;UniqueIdentifierFieldName&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">InstanceId</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;The&nbsp;unique&nbsp;identifier&nbsp;for&nbsp;each&nbsp;resource.</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;SummaryReportBillingColumn&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">PreTaxCost</span><span
+
+style="color: #e9f284;">"</span></div><br><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;}</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;},</span></div><br><div><span style="color: #f8f8f2;">&nbsp;&nbsp;[</span><span
+
+style="color: #ff79c6;">boolean</span><span style="color: #f8f8f2;">]&nbsp;$shortenResourceId&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #bd93f9;">$true</span><span style="color: #f8f8f2;">,&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;Shorten&nbsp;the&nbsp;resource&nbsp;ID&nbsp;to&nbsp;the&nbsp;last&nbsp;(2)&nbsp;elements</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;[</span><span style="color: #ff79c6;">boolean</span><span
+
+style="color: #f8f8f2;">]&nbsp;$sendUnabridgedReport&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #bd93f9;">$false</span><span
+
+style="color: #f8f8f2;">,&nbsp;</span><span style="color: #6272a4;">#&nbsp;Send&nbsp;the&nbsp;report&nbsp;unabridged?&nbsp;($false&nbsp;recommended)</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;[</span><span style="color: #ff79c6;">boolean</span><span
+
+style="color: #f8f8f2;">]&nbsp;$sendEmailReport&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #bd93f9;">$true</span><span
+
+style="color: #f8f8f2;">,&nbsp;</span><span style="color: #6272a4;">#&nbsp;Do&nbsp;we&nbsp;want&nbsp;to&nbsp;send&nbsp;this&nbsp;report&nbsp;as&nbsp;an&nbsp;email?</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;[</span><span style="color: #ff79c6;">array</span><span
+
+style="color: #f8f8f2;">]&nbsp;$emailReportRecipients&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">@</span><span
+
+style="color: #f8f8f2;">(</span><span style="color: #e9f284;">"</span><span style="color: #f1fa8c;">operations@Xyzelinip.com</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">,</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">xxx@yyy.com</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f8f8f2;">,</span><span style="color: #e9f284;">"</span><span style="color: #f1fa8c;">spendleton@Xyzelinip.com</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">,</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">aav@yyy.com</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f8f8f2;">,</span><span style="color: #e9f284;">"</span><span style="color: #f1fa8c;">gmaciolek@Xyzelinip.com</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">),&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;Who&nbsp;do&nbsp;we&nbsp;want&nbsp;to&nbsp;send&nbsp;mail&nbsp;to?</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;[</span><span style="color: #ff79c6;">boolean</span><span
+
+style="color: #f8f8f2;">]&nbsp;$localTestingConnection&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #bd93f9;">$false</span><span
+
+style="color: #f8f8f2;">,&nbsp;</span><span style="color: #6272a4;">#&nbsp;Set&nbsp;to&nbsp;true&nbsp;when&nbsp;testing&nbsp;this&nbsp;application&nbsp;locally&nbsp;(and&nbsp;false&nbsp;when&nbsp;on&nbsp;Azure&nbsp;Automation&nbsp;Runbook)</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;[</span><span style="color: #ff79c6;">int32</span><span
+
+style="color: #f8f8f2;">]&nbsp;$shortenedFieldCount&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #bd93f9;">3</span><span
+
+style="color: #f8f8f2;">,&nbsp;</span><span style="color: #6272a4;">#&nbsp;Number&nbsp;of&nbsp;fields&nbsp;to&nbsp;use&nbsp;from&nbsp;the&nbsp;"unique&nbsp;id"&nbsp;-&nbsp;2&nbsp;for&nbsp;XYZIP,&nbsp;3&nbsp;for&nbsp;rxdispense</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;[</span><span style="color: #ff79c6;">string</span><span
+
+style="color: #f8f8f2;">]&nbsp;$connectionName&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">AzureRunAsConnection</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f8f8f2;">,</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;[</span><span
+
+style="color: #ff79c6;">string</span><span style="color: #f8f8f2;">]&nbsp;$csvDataLocation&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">Azure</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">,&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;"Azure"&nbsp;or&nbsp;"Local"</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;[</span><span style="color: #ff79c6;">string</span><span
+
+style="color: #f8f8f2;">]&nbsp;$csvLocalPath&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">ConsolidatedUsageReport-seminormalized-v2-testsourcedata.csv</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">,&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;Local&nbsp;(testing)&nbsp;input&nbsp;data</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;[</span><span style="color: #ff79c6;">boolean</span><span
+
+style="color: #f8f8f2;">]&nbsp;$writeProgress&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #bd93f9;">$true</span><span
+
+style="color: #f8f8f2;">,&nbsp;</span><span style="color: #6272a4;">#&nbsp;Probably&nbsp;only&nbsp;useful&nbsp;when&nbsp;running&nbsp;locally</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;[</span><span style="color: #ff79c6;">string</span><span
+
+style="color: #f8f8f2;">]&nbsp;$dataTypeSource&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">Script</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f8f8f2;">,&nbsp;</span><span style="color: #6272a4;">#&nbsp;NOTE:&nbsp;Only&nbsp;"Script"&nbsp;implemented!&nbsp;&nbsp;(JSON&nbsp;is&nbsp;embedded&nbsp;in&nbsp;the&nbsp;script&nbsp;below)</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;[</span><span style="color: #ff79c6;">array</span><span
+
+style="color: #f8f8f2;">]&nbsp;$priceTotalFields&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">@</span><span
+
+style="color: #f8f8f2;">(</span><span style="color: #e9f284;">"</span><span style="color: #f1fa8c;">PreTaxCost</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">,</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">costInBillingCurrency</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f8f8f2;">,&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">costInPricingCurrency</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f8f8f2;">,&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">costInUsd</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f8f8f2;">,&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">paygCostInBillingCurrency</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f8f8f2;">,&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">paygCostInUsd</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f8f8f2;">),</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;[</span><span
+
+style="color: #ff79c6;">array</span><span style="color: #f8f8f2;">]&nbsp;$currencyFields&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;$priceTotalFields&nbsp;</span><span
+
+style="color: #ff79c6;">+</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">TOTAL_</span><span
+
+style="color: #f8f8f2;">$summaryReportBillingColumn</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f8f8f2;">,&nbsp;</span><span style="color: #6272a4;">#&nbsp;SHould&nbsp;be&nbsp;an&nbsp;array&nbsp;with&nbsp;specifics,&nbsp;but&nbsp;this&nbsp;will&nbsp;work,</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;[</span><span style="color: #ff79c6;">string</span><span
+
+style="color: #f8f8f2;">]&nbsp;$scriptRuntimeField&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">exportRunTime</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f8f8f2;">,&nbsp;</span><span style="color: #6272a4;">#&nbsp;set&nbsp;to&nbsp;$null&nbsp;if&nbsp;not&nbsp;using&nbsp;this</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;[</span><span style="color: #ff79c6;">string</span><span
+
+style="color: #f8f8f2;">]&nbsp;$fileCreatedTimeField&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #bd93f9;">$null</span><span
+
+style="color: #f8f8f2;">,&nbsp;</span><span style="color: #6272a4;">###&nbsp;&nbsp;NOT&nbsp;WORKING&nbsp;DO&nbsp;NOT&nbsp;ENABLE&nbsp;###&nbsp;#&nbsp;"dataSourceFileCreationTime",&nbsp;#&nbsp;set&nbsp;to&nbsp;$null&nbsp;if&nbsp;not&nbsp;using&nbsp;this</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;[</span><span style="color: #ff79c6;">string</span><span
+
+style="color: #f8f8f2;">]&nbsp;$outputBaseName&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">'</span><span
+
+style="color: #f1fa8c;">ConsolidatedUsageReport-seminormalized-v2</span><span style="color: #e9f284;">'</span><span
+
+style="color: #f8f8f2;">,&nbsp;</span><span style="color: #6272a4;">#&nbsp;Output&nbsp;report&nbsp;file&nbsp;name&nbsp;(base&nbsp;name)</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;[</span><span style="color: #ff79c6;">boolean</span><span
+
+style="color: #f8f8f2;">]&nbsp;$generateSummaryReport&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #bd93f9;">$true</span><span
+
+style="color: #f8f8f2;">,&nbsp;</span><span style="color: #6272a4;">#&nbsp;Generate&nbsp;a&nbsp;report&nbsp;with&nbsp;one&nbsp;row&nbsp;per&nbsp;resource&nbsp;ID&nbsp;and&nbsp;summed&nbsp;cost</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;[</span><span style="color: #ff79c6;">array</span><span
+
+style="color: #f8f8f2;">]&nbsp;$summaryFieldsToRemove&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">@</span><span
+
+style="color: #f8f8f2;">(</span><span style="color: #e9f284;">"</span><span style="color: #f1fa8c;">usagequantity</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">,&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">quantity</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">,&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">costInUsd</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">,&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">paygCostInUsd</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">,&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">effectivePrice</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">,&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">costInBillingCurrency</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">,&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">costInPricingCurrency</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">,&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">paygCostInBillingCurrency</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">,&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">date</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f8f8f2;">),</span></div><br><div><span style="color: #f8f8f2;">&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">#[array]&nbsp;$fieldsToHighlight&nbsp;=&nbsp;@(resourceId,@{Name&nbsp;=&nbsp;'CostUSD';&nbsp;Expression&nbsp;=&nbsp;{"{0:c}"&nbsp;-f&nbsp;[double]$_.TOTAL_costInUsd}},meterCategory,meterSubCategory,consumedService,resourceLocation,TOTAL_costinusd,publisherName,ProductName,serviceFamily,invoiceSectionId&nbsp;&nbsp;&nbsp;,paygCostInBillingCurrency,&nbsp;paygCostInUsd,&nbsp;PayGPrice,&nbsp;costCenter,&nbsp;costInPricingCurrency,&nbsp;costInUsd,&nbsp;costInBillingCurrency),&nbsp;#&nbsp;The&nbsp;things&nbsp;to&nbsp;highlight&nbsp;/&nbsp;show&nbsp;for&nbsp;summary&nbsp;UNIMPLEMENTED</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;[</span><span style="color: #ff79c6;">boolean</span><span
+
+style="color: #f8f8f2;">]&nbsp;$testMode&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #bd93f9;">$false</span><span
+
+style="color: #f8f8f2;">,&nbsp;</span><span style="color: #6272a4;">#&nbsp;Enable&nbsp;extra&nbsp;debugging&nbsp;info</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;[</span><span style="color: #ff79c6;">int32</span><span
+
+style="color: #f8f8f2;">]&nbsp;$testModeRows&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #bd93f9;">25</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #6272a4;">#&nbsp;Number&nbsp;of&nbsp;rows&nbsp;we&nbsp;process&nbsp;when&nbsp;in&nbsp;test&nbsp;mode</span></div><div><span
+
+style="color: #f8f8f2;">)</span></div><br><div><span style="color: #6272a4;">##########################</span></div><div><span
+
+style="color: #6272a4;">#&nbsp;The&nbsp;following&nbsp;is&nbsp;a&nbsp;super-long&nbsp;config&nbsp;variable.&nbsp;Click&nbsp;the&nbsp;arrow&nbsp;to&nbsp;the&nbsp;left&nbsp;of&nbsp;it&nbsp;to&nbsp;hide&nbsp;it&nbsp;(in&nbsp;most&nbsp;editors)</span></div><div><span
+
+style="color: #6272a4;">#&nbsp;The&nbsp;first&nbsp;row/entry&nbsp;is&nbsp;"expanded"&nbsp;to&nbsp;make&nbsp;it&nbsp;easier&nbsp;to&nbsp;view</span></div><div><span
+
+style="color: #6272a4;">#&nbsp;&nbsp;&nbsp;&nbsp;(Note&nbsp;-&nbsp;this&nbsp;does&nbsp;NOT&nbsp;contain&nbsp;the&nbsp;"SQLDataType"&nbsp;key&nbsp;-&nbsp;this&nbsp;JSON&nbsp;set&nbsp;cannot&nbsp;be&nbsp;used&nbsp;to&nbsp;create&nbsp;mappings</span></div><div><span
+
+style="color: #6272a4;">#&nbsp;&nbsp;&nbsp;&nbsp;for&nbsp;Azure&nbsp;Data&nbsp;Factory;&nbsp;earlier&nbsp;versions&nbsp;of&nbsp;this&nbsp;script&nbsp;implemented&nbsp;other&nbsp;functionality,&nbsp;including&nbsp;that.)</span></div><br><div><span
+
+style="color: #ff79c6;">if</span><span style="color: #f8f8f2;">&nbsp;($dataTypeSource&nbsp;</span><span
+
+style="color: #ff79c6;">-ieq</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">Script</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">&nbsp;)&nbsp;{</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;$jsonDataTypesString&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">@"</span></div><div><span
+
+style="color: #f1fa8c;">[</span></div><div><span style="color: #f1fa8c;">&nbsp;&nbsp;{</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;&nbsp;&nbsp;"SourcePropertyName":&nbsp;"ResourceId",</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;},</span></div><div><span style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"resourceLocation",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"PreTaxCost",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"decimal",&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"InstanceId",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""&nbsp;},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"invoiceId",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""&nbsp;},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"previousInvoiceId",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"billingAccountId",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"billingAccountName",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"billingProfileId",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"billingProfileName",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"invoiceSectionId",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"invoiceSectionName",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"resellerName",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"resellerMpnId",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"costCenter",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"billingPeriodEndDate",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"DateTime",&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"billingPeriodStartDate",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"DateTime",&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"servicePeriodEndDate",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"DateTime",&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"servicePeriodStartDate",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"DateTime",&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"date",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"DateTime",&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"serviceFamily",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"productOrderId",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"productOrderName",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"consumedService",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"meterId",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"meterName",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"meterCategory",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"meterSubCategory",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"meterRegion",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"ProductId",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"ProductName",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"SubscriptionId",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"subscriptionName",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"publisherType",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"publisherId",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"publisherName",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"resourceGroupName",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"location",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"effectivePrice",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"decimal",&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"quantity",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"decimal",&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"unitOfMeasure",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"chargeType",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"billingCurrency",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"pricingCurrency",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"costInBillingCurrency",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"decimal",&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"costInPricingCurrency",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"decimal",&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"costInUsd",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"decimal",&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"paygCostInBillingCurrency",&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"decimal",&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"paygCostInUsd",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"decimal",&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"exchangeRatePricingToBilling",&nbsp;"PSType":&nbsp;"decimal",&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"exchangeRateDate",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"DateTime",&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"isAzureCreditEligible",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"decimal",&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"serviceInfo1",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"serviceInfo2",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"additionalInfo",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"tags",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"PayGPrice",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"decimal",&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"frequency",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"term",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"reservationId",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"reservationName",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"resourceGroup",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;"",&nbsp;"RemapName":&nbsp;"resourceGroupName"&nbsp;},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"pricingModel",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"string",&nbsp;&nbsp;&nbsp;"TargetPropertyName":&nbsp;""},</span></div><div><span
+
+style="color: #f1fa8c;">&nbsp;&nbsp;{&nbsp;"SourcePropertyName":&nbsp;"usageQuantity",&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"PSType":&nbsp;"decimal",&nbsp;&nbsp;"TargetPropertyName":&nbsp;""}</span></div><div><span
+
+style="color: #f1fa8c;">]</span></div><div><span style="color: #e9f284;">"@</span></div><div><span
+
+style="color: #f8f8f2;">}</span></div><div><span style="color: #ff79c6;">else</span><span
+
+style="color: #f8f8f2;">&nbsp;{&nbsp;</span><span style="color: #8be9fd;">Write-Error</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">'</span><span
+
+style="color: #f1fa8c;">ERROR:&nbsp;Unimplemented&nbsp;Data&nbsp;Type&nbsp;Source!&nbsp;Please&nbsp;change&nbsp;$dataTypeSource&nbsp;to&nbsp;"Local"</span><span
+
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">;&nbsp;</span><span
+
+style="color: #ff79c6;">break</span><span style="color: #f8f8f2;">&nbsp;}</span></div><div><span
+
+style="color: #6272a4;">&lt;#</span></div><div><span style="color: #6272a4;">&nbsp;&nbsp;&nbsp;&nbsp;Start&nbsp;Script&nbsp;-&nbsp;Init&nbsp;Variables</span></div><div><span
+
+style="color: #6272a4;">#&gt;</span></div><br><div><span style="color: #f8f8f2;">$scriptStartTime&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #8be9fd;">Get-Date</span></div><br><div><span style="color: #6272a4;">###&nbsp;JSON&nbsp;"data&nbsp;types"&nbsp;import&nbsp;from&nbsp;JSON&nbsp;(string)</span></div><div><span
+
+style="color: #6272a4;">#$dataImportTypesArray&nbsp;=&nbsp;Import-CSV&nbsp;$dataTypeCSV</span></div><div><span
+
+style="color: #f8f8f2;">$dataImportTypesArray&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;$jsonDataTypesString&nbsp;|&nbsp;</span><span style="color: #8be9fd;">ConvertFrom-JSON</span></div><br><div><span
+
+style="color: #6272a4;">&lt;#</span></div><div><span style="color: #6272a4;">&nbsp;&nbsp;Initialize&nbsp;client-specific&nbsp;variables&nbsp;per&nbsp;$clientConfigId&nbsp;-&nbsp;from&nbsp;$clientConfig&nbsp;hashtable</span></div><div><span
+
+style="color: #6272a4;">#&gt;</span></div><br><div><span style="color: #6272a4;">#&nbsp;Do&nbsp;we&nbsp;have&nbsp;an&nbsp;override&nbsp;in&nbsp;the&nbsp;environment?&nbsp;If&nbsp;so,&nbsp;we'll&nbsp;override&nbsp;the&nbsp;parameter&nbsp;specified,</span></div><div><span
+
+style="color: #6272a4;">#&nbsp;otherwise&nbsp;we&nbsp;use&nbsp;the&nbsp;fallback</span></div><div><span
+
+style="color: #f8f8f2;">$clientIdOverride&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #bd93f9;">$null</span></div><br><div><span
+
+style="color: #ff79c6;">if</span><span style="color: #f8f8f2;">&nbsp;($localTestingConnection)&nbsp;{&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;We&nbsp;use&nbsp;an&nbsp;environment&nbsp;variable&nbsp;if&nbsp;we're&nbsp;running&nbsp;locally</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;$clientIdOverride&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;$</span><span style="color: #bd93f9;">ENV:</span><span
+
+style="color: #f8f8f2;">AZUREREPORTCLIENTID</span></div><div><span style="color: #f8f8f2;">}&nbsp;</span><span
+
+style="color: #ff79c6;">else</span><span style="color: #f8f8f2;">&nbsp;{&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;And&nbsp;if&nbsp;we're&nbsp;on&nbsp;Azure,&nbsp;we&nbsp;use&nbsp;an&nbsp;automation&nbsp;variable</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;$clientIdOverride&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #8be9fd;">Get-AutomationVariable</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">-</span><span
+
+style="color: #f8f8f2;">Name&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">AZUREREPORTCLIENTID</span><span style="color: #e9f284;">"</span></div><div><span
+
+style="color: #f8f8f2;">}</span></div><div><span style="color: #6272a4;">#&nbsp;Did&nbsp;we&nbsp;get&nbsp;something&nbsp;from&nbsp;environment?&nbsp;If&nbsp;so,&nbsp;use&nbsp;it,&nbsp;otherwise&nbsp;use&nbsp;fallback&nbsp;parameter</span></div><div><span
+
+style="color: #f8f8f2;">$clientConfigId&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">If</span><span
+
+style="color: #f8f8f2;">&nbsp;($clientIdOverride)&nbsp;{&nbsp;$clientIdOverride&nbsp;}</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;</span><span style="color: #ff79c6;">else</span><span
+
+style="color: #f8f8f2;">&nbsp;{&nbsp;$fallbackAZUREREPORTCLIENTID&nbsp;}</span></div><br><div><span
+
+style="color: #f8f8f2;">$inputStorageLocations&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$clientConfig.$clientConfigId&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;Assign&nbsp;the&nbsp;whole&nbsp;custom&nbsp;object&nbsp;here,&nbsp;with&nbsp;various&nbsp;nested&nbsp;config&nbsp;parameterrs</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;used&nbsp;for&nbsp;connecting&nbsp;to&nbsp;the&nbsp;storage&nbsp;account&nbsp;and&nbsp;downloading&nbsp;from&nbsp;the&nbsp;right&nbsp;path</span></div><br><div><span
+
+style="color: #f8f8f2;">$localTestingTenant&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$clientConfig.$clientConfigId.TenantId&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;If&nbsp;you're&nbsp;testing&nbsp;this&nbsp;locally,&nbsp;connect&nbsp;and&nbsp;use&nbsp;this&nbsp;tenant</span></div><div><span
+
+style="color: #f8f8f2;">$localTestingSubscription&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;$clientConfig.$clientConfigId.SubscriptionId&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;...locally,&nbsp;connect&nbsp;and&nbsp;use&nbsp;this&nbsp;subscription</span></div><br><div><span
+
+style="color: #f8f8f2;">$uniqueIdentifierFieldName&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;$clientConfig.$clientConfigId.UniqueIdentifierFieldName</span></div><div><span
+
+style="color: #f8f8f2;">$summaryReportBillingColumn&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;$clientConfig.$clientConfigId.SummaryReportBillingColumn</span></div><div><span
+
+style="color: #f8f8f2;">$clientName&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$clientConfig.$clientConfigId.ClientName</span></div><br><div><span
+
+style="color: #6272a4;">&lt;#</span></div><div><span style="color: #6272a4;">&nbsp;&nbsp;End&nbsp;client-specific&nbsp;init,&nbsp;continue&nbsp;general&nbsp;variable&nbsp;init</span></div><div><span
+
+style="color: #6272a4;">#&gt;</span></div><br><br><div><span style="color: #ff79c6;">if</span><span
+
+style="color: #f8f8f2;">&nbsp;($generateSummaryReport)&nbsp;{</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;$summaryReportTable&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">@</span><span
+
+style="color: #f8f8f2;">{}</span></div><div><span style="color: #f8f8f2;">}</span></div><br><div><span
+
+style="color: #f8f8f2;">$resourcesWithoutID&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">@</span><span
+
+style="color: #f8f8f2;">()</span></div><br><div><span style="color: #ff79c6;">if</span><span
+
+style="color: #f8f8f2;">&nbsp;($scriptRuntimeField)&nbsp;{</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;$scriptRunTimeFormatted&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;($scriptStartTime&nbsp;|&nbsp;</span><span style="color: #8be9fd;">Get-Date</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">-</span><span
+
+style="color: #f8f8f2;">format&nbsp;</span><span style="color: #e9f284;">'</span><span
+
+style="color: #f1fa8c;">yyyy-MM-dd&nbsp;HH:mm:ss.fff</span><span style="color: #e9f284;">'</span><span
+
+style="color: #f8f8f2;">)&nbsp;</span><span style="color: #ff79c6;">-as</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">string</span><span style="color: #e9f284;">"</span></div><div><span
+
+style="color: #f8f8f2;">}</span></div><br><div><span style="color: #6272a4;">&lt;#</span></div><div><span
+
+style="color: #6272a4;">&nbsp;&nbsp;&nbsp;&nbsp;Load&nbsp;some&nbsp;modules</span></div><div><span
+
+style="color: #6272a4;">#&gt;</span></div><br><div><span style="color: #8be9fd;">Import-Module</span><span
+
+style="color: #f8f8f2;">&nbsp;Az.Storage</span></div><div><span style="color: #ff79c6;">if</span><span
+
+style="color: #f8f8f2;">&nbsp;($localTestingConnection)&nbsp;{</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;</span><span style="color: #8be9fd;">Import-Module</span><span
+
+style="color: #f8f8f2;">&nbsp;$</span><span style="color: #bd93f9;">env:</span><span
+
+style="color: #f8f8f2;">USERPROFILE\XyzIP</span><span style="color: #ff79c6;">-</span><span
+
+style="color: #f8f8f2;">OneDrive\xyzip</span><span style="color: #ff79c6;">-</span><span
+
+style="color: #f8f8f2;">dev</span><span style="color: #ff79c6;">-</span><span style="color: #f8f8f2;">and</span><span
+
+style="color: #ff79c6;">-</span><span style="color: #f8f8f2;">scripts\Repos\custom</span><span
+
+style="color: #ff79c6;">-</span><span style="color: #f8f8f2;">modules\XyzIP.MailFunctions\XyzIP.MailFunctions.psm1</span></div><div><span
+
+style="color: #f8f8f2;">}</span></div><br><div><span style="color: #6272a4;">&lt;#</span></div><div><span
+
+style="color: #6272a4;">&nbsp;&nbsp;&nbsp;&nbsp;Initialize&nbsp;the&nbsp;connection,&nbsp;if&nbsp;needed</span></div><div><span
+
+style="color: #6272a4;">#&gt;</span></div><br><div><span style="color: #ff79c6;">if</span><span
+
+style="color: #f8f8f2;">&nbsp;($csvDataLocation&nbsp;</span><span style="color: #ff79c6;">-ieq</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">Azure</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f8f8f2;">)&nbsp;{</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;</span><span
+
+style="color: #ff79c6;">try</span><span style="color: #f8f8f2;">&nbsp;{</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">if</span><span
+
+style="color: #f8f8f2;">&nbsp;(</span><span style="color: #ff79c6;">-not</span><span
+
+style="color: #f8f8f2;">&nbsp;$localTestingConnection)&nbsp;{</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">#&nbsp;Get&nbsp;the&nbsp;connection&nbsp;"AzureRunAsConnection"</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$servicePrincipalConnection&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #8be9fd;">Get-AutomationConnection</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #ff79c6;">-</span><span style="color: #f8f8f2;">Name&nbsp;$connectionName</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">Logging&nbsp;in&nbsp;to&nbsp;Azure...</span><span style="color: #e9f284;">"</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #8be9fd;">Add-AzAccount</span><span
+
+style="color: #f8f8f2;">&nbsp;`</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #ff79c6;">-</span><span style="color: #f8f8f2;">ServicePrincipal&nbsp;`</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #ff79c6;">-</span><span style="color: #f8f8f2;">TenantId&nbsp;$servicePrincipalConnection.TenantId&nbsp;`</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #ff79c6;">-</span><span style="color: #f8f8f2;">ApplicationId&nbsp;$servicePrincipalConnection.ApplicationId&nbsp;`</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #ff79c6;">-</span><span style="color: #f8f8f2;">CertificateThumbprint&nbsp;$servicePrincipalConnection.CertificateThumbprint</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;}&nbsp;</span><span style="color: #ff79c6;">else</span><span
+
+style="color: #f8f8f2;">&nbsp;{&nbsp;</span><span style="color: #6272a4;">#&nbsp;$localTestingConnection</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">if</span><span
+
+style="color: #f8f8f2;">&nbsp;(</span><span style="color: #ff79c6;">-not</span><span
+
+style="color: #f8f8f2;">&nbsp;(</span><span style="color: #8be9fd;">Get-AzContext</span><span
+
+style="color: #f8f8f2;">))&nbsp;{&nbsp;</span><span style="color: #6272a4;">#&nbsp;Check&nbsp;for&nbsp;connecton&nbsp;to&nbsp;Azure</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #8be9fd;">Add-AzAccount</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;}</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #8be9fd;">Set-AzContext</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #ff79c6;">-</span><span style="color: #f8f8f2;">Tenant&nbsp;$localTestingTenant&nbsp;</span><span
+
+style="color: #ff79c6;">-</span><span style="color: #f8f8f2;">Subscription&nbsp;$localTestingSubscription</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;}&nbsp;</span><span style="color: #ff79c6;">catch</span><span
+
+style="color: #f8f8f2;">&nbsp;{&nbsp;</span><span style="color: #6272a4;">#&nbsp;end&nbsp;try&nbsp;(for&nbsp;connection&nbsp;attempt)</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">if</span><span
+
+style="color: #f8f8f2;">&nbsp;(</span><span style="color: #ff79c6;">!</span><span
+
+style="color: #f8f8f2;">$servicePrincipalConnection&nbsp;</span><span style="color: #ff79c6;">-and</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">!</span><span
+
+style="color: #f8f8f2;">$localTestingConnection)&nbsp;{</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$ErrorMessage&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">Connection&nbsp;</span><span
+
+style="color: #f8f8f2;">$connectionName</span><span style="color: #f1fa8c;">&nbsp;not&nbsp;found.</span><span
+
+style="color: #e9f284;">"</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #ff79c6;">throw</span><span style="color: #f8f8f2;">&nbsp;$ErrorMessage</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;}&nbsp;</span><span style="color: #ff79c6;">else</span><span
+
+style="color: #f8f8f2;">&nbsp;{</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #8be9fd;">Write-Error</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #ff79c6;">-</span><span style="color: #f8f8f2;">Message&nbsp;</span><span
+
+style="color: #bd93f9;">$_</span><span style="color: #f8f8f2;">.Exception</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">throw</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #bd93f9;">$_</span><span
+
+style="color: #f8f8f2;">.Exception</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;}</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;}&nbsp;</span><span style="color: #6272a4;">#&nbsp;end&nbsp;catch&nbsp;(for&nbsp;connection&nbsp;attempt)</span></div><div><span
+
+style="color: #f8f8f2;">}&nbsp;</span><span style="color: #6272a4;">#&nbsp;endif&nbsp;"get&nbsp;data&nbsp;from&nbsp;azure?"</span></div><br><div><span
+
+style="color: #6272a4;">################################&nbsp;START&nbsp;MULTI-CSV&nbsp;DOWNLOAD&nbsp;#####################</span></div><br><div><span
+
+style="color: #f8f8f2;">$inputFiles&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">@</span><span
+
+style="color: #f8f8f2;">()&nbsp;</span><span style="color: #6272a4;">#&nbsp;We&nbsp;need&nbsp;an&nbsp;empty&nbsp;array&nbsp;to&nbsp;insert&nbsp;the&nbsp;temp&nbsp;files&nbsp;into.</span></div><br><div><span
+
+style="color: #6272a4;">&lt;#</span></div><div><span style="color: #6272a4;">&nbsp;&nbsp;&nbsp;&nbsp;Begin&nbsp;looping&nbsp;through&nbsp;array&nbsp;of&nbsp;input&nbsp;locations</span></div><div><span
+
+style="color: #6272a4;">#&gt;</span></div><br><div><span style="color: #ff79c6;">if</span><span
+
+style="color: #f8f8f2;">&nbsp;($csvDataLocation&nbsp;</span><span style="color: #ff79c6;">-ieq</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">Azure</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f8f8f2;">)&nbsp;{</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;Perform&nbsp;the&nbsp;dowload&nbsp;with&nbsp;azure</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;$sourceFileCreationTimes&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">@</span><span
+
+style="color: #f8f8f2;">{}</span></div><br><div><span style="color: #f8f8f2;">&nbsp;&nbsp;</span><span
+
+style="color: #ff79c6;">if</span><span style="color: #f8f8f2;">&nbsp;($testMode)&nbsp;{&nbsp;</span><span
+
+style="color: #8be9fd;">Write-Output</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">Now&nbsp;attempting&nbsp;to&nbsp;download&nbsp;blobs</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">&nbsp;}</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;$inputLocation&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;$inputStorageLocations[</span><span style="color: #bd93f9;">0</span><span
+
+style="color: #f8f8f2;">]</span></div><br><div><span style="color: #f8f8f2;">&nbsp;&nbsp;</span><span
+
+style="color: #bd93f9;">$error</span><span style="color: #f8f8f2;">.clear()&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;Clear&nbsp;error&nbsp;var.&nbsp;for&nbsp;possible&nbsp;issues</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;</span><span style="color: #6272a4;">######&nbsp;&nbsp;&nbsp;&nbsp;try&nbsp;{</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;</span><span style="color: #ff79c6;">if</span><span
+
+style="color: #f8f8f2;">&nbsp;($testMode)&nbsp;{</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #8be9fd;">Write-Output</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">Attempting&nbsp;to&nbsp;access&nbsp;the&nbsp;following&nbsp;entry:</span><span
+
+style="color: #e9f284;">"</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;$inputLocation&nbsp;|&nbsp;</span><span
+
+style="color: #8be9fd;">Format-List</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;}</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;</span><span style="color: #ff79c6;">if</span><span
+
+style="color: #f8f8f2;">&nbsp;($inputLocation.AuthType&nbsp;</span><span style="color: #ff79c6;">-eq</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">Account</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">-or</span><span
+
+style="color: #f8f8f2;">&nbsp;$inputLocation.AuthType&nbsp;</span><span style="color: #ff79c6;">-eq</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">Key</span><span style="color: #e9f284;">"</span><span style="color: #f8f8f2;">)&nbsp;{</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">if</span><span
+
+style="color: #f8f8f2;">&nbsp;($inputLocation.AuthType&nbsp;</span><span style="color: #ff79c6;">-eq</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">Account</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f8f8f2;">)&nbsp;{</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">#Get&nbsp;key&nbsp;to&nbsp;storage&nbsp;account&nbsp;from&nbsp;key&nbsp;vault&nbsp;/&nbsp;Azure&nbsp;IAM</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$inputStorageAcctKeys&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;(</span><span
+
+style="color: #8be9fd;">Get-AzStorageAccountKey</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #ff79c6;">-</span><span style="color: #f8f8f2;">Name&nbsp;$inputLocation.StorageAcctName&nbsp;&nbsp;</span><span
+
+style="color: #ff79c6;">-</span><span style="color: #f8f8f2;">ResourceGroupName&nbsp;$inputLocation.KeyResourceGroupName)&nbsp;</span><span
+
+style="color: #6272a4;">#.Value[0]&nbsp;&nbsp;&nbsp;###&nbsp;-Context&nbsp;$AzureContext</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$inputStorageAcctKey&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;$inputStorageAcctKeys[</span><span
+
+style="color: #bd93f9;">0</span><span style="color: #f8f8f2;">].Value</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;}</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #ff79c6;">elseif</span><span style="color: #f8f8f2;">&nbsp;($inputLocation.AuthType&nbsp;</span><span
+
+style="color: #ff79c6;">-eq</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">Key</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f8f8f2;">)&nbsp;{</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;not&nbsp;strictly&nbsp;neccesary,&nbsp;but&nbsp;nice&nbsp;for&nbsp;clarity</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$inputStorageAcctKey&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;$inputLocation.StorageAccountKey</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;}</span></div><br><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #ff79c6;">if</span><span style="color: #f8f8f2;">&nbsp;($testMode)&nbsp;{</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #8be9fd;">Write-Output</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">inputStorageAcctKey:&nbsp;</span><span style="color: #f8f8f2;">$inputStorageAcctKey</span><span
+
+style="color: #f1fa8c;">&nbsp;-&nbsp;Now&nbsp;trying&nbsp;to&nbsp;set&nbsp;storage&nbsp;context...</span><span
+
+style="color: #e9f284;">"</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;}</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">#&nbsp;Map&nbsp;to&nbsp;the&nbsp;reports&nbsp;BLOB&nbsp;context</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;$inputStorageContext&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #8be9fd;">New-AzStorageContext</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #ff79c6;">-</span><span style="color: #f8f8f2;">StorageAccountName&nbsp;$inputLocation.StorageAcctName&nbsp;</span><span
+
+style="color: #ff79c6;">-</span><span style="color: #f8f8f2;">StorageAccountKey&nbsp;$inputStorageAcctKey</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">if</span><span
+
+style="color: #f8f8f2;">&nbsp;($testMode)&nbsp;{</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #8be9fd;">Write-Output</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">Result&nbsp;($inputStorageContext&nbsp;|&nbsp;fl):</span><span
+
+style="color: #e9f284;">'</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$inputStorageContext&nbsp;|&nbsp;</span><span
+
+style="color: #8be9fd;">Format-List</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;}</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;}</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;</span><span
+
+style="color: #ff79c6;">else</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;if&nbsp;$inputLocation&nbsp;-eq&nbsp;"Account"&nbsp;/&nbsp;-eq&nbsp;"Key"</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;{&nbsp;</span><span style="color: #8be9fd;">Write-Error</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">'</span><span
+
+style="color: #f1fa8c;">Cannot&nbsp;set&nbsp;storage&nbsp;context.&nbsp;Please&nbsp;check&nbsp;config:&nbsp;Unknown&nbsp;(or&nbsp;no)&nbsp;storage&nbsp;account&nbsp;AuthType&nbsp;specified&nbsp;in&nbsp;$inputLocation.AuthType:&nbsp;</span><span
+
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">&nbsp;$inputLocation.AuthType&nbsp;}</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;</span><span style="color: #6272a4;">&lt;#</span></div><div><span
+
+style="color: #6272a4;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Get&nbsp;the&nbsp;file&nbsp;from&nbsp;Azure&nbsp;Storage&nbsp;(Blob)</span></div><div><span
+
+style="color: #6272a4;">&nbsp;&nbsp;#&gt;</span></div><br><div><span style="color: #f8f8f2;">&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;Get&nbsp;the&nbsp;blobs&nbsp;list&nbsp;and&nbsp;then&nbsp;sort&nbsp;them&nbsp;by&nbsp;last&nbsp;modified&nbsp;date&nbsp;descending</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;$blobs&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #8be9fd;">Get-AzStorageBlob</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">-</span><span
+
+style="color: #f8f8f2;">Container&nbsp;$inputLocation.StorageContainer&nbsp;</span><span
+
+style="color: #ff79c6;">-</span><span style="color: #f8f8f2;">Context&nbsp;$inputStorageContext&nbsp;</span><span
+
+style="color: #ff79c6;">-</span><span style="color: #f8f8f2;">Prefix&nbsp;$inputLocation.StoragePrefix&nbsp;`</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">&lt;#|&nbsp;Where-Object&nbsp;{&nbsp;}&nbsp;#&gt;</span><span
+
+style="color: #f8f8f2;">&nbsp;|&nbsp;sort&nbsp;</span><span style="color: #ff79c6;">@</span><span
+
+style="color: #f8f8f2;">{expression&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">LastModified</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f8f8f2;">;&nbsp;Descending&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #bd93f9;">$true</span><span
+
+style="color: #f8f8f2;">&nbsp;}</span></div><br><div><span style="color: #f8f8f2;">&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;First&nbsp;blob&nbsp;in&nbsp;that&nbsp;list&nbsp;would&nbsp;be&nbsp;the&nbsp;last&nbsp;modified&nbsp;(because&nbsp;they're&nbsp;sorted&nbsp;above)</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;$latestBlob&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;$blobs[</span><span style="color: #bd93f9;">0</span><span
+
+style="color: #f8f8f2;">]</span></div><br><div><span style="color: #f8f8f2;">&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;Where&nbsp;will&nbsp;we&nbsp;put&nbsp;it?&nbsp;Temp&nbsp;storage!</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;</span><span style="color: #6272a4;">#&nbsp;$tempPath&nbsp;=&nbsp;$env:TEMP&nbsp;#&nbsp;Less&nbsp;cross-platform</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;$tempPath&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;[</span><span style="color: #ff79c6;">IO.Path</span><span
+
+style="color: #f8f8f2;">]::GetTempPath()</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;$csvFilename&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;[</span><span
+
+style="color: #ff79c6;">System.IO.Path</span><span style="color: #f8f8f2;">]::GetRandomFileName()</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;$tempCSVPath&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #8be9fd;">Join-Path</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">-</span><span
+
+style="color: #f8f8f2;">path&nbsp;$tempPath&nbsp;</span><span style="color: #ff79c6;">-</span><span
+
+style="color: #f8f8f2;">ChildPath&nbsp;$csvFilename</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">#$tempCSVPath&nbsp;=&nbsp;$env:TEMP&nbsp;+&nbsp;"/tempCSVImport.csv"</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;</span><span style="color: #6272a4;">#$tempCSVPath&nbsp;=&nbsp;New-TemporaryFile</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;</span><span style="color: #ff79c6;">if</span><span
+
+style="color: #f8f8f2;">&nbsp;($fileCreatedTimeField)&nbsp;{</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">#&nbsp;If&nbsp;we're&nbsp;recording&nbsp;the&nbsp;file&nbsp;creation&nbsp;time,&nbsp;get&nbsp;the&nbsp;needed&nbsp;data</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">#Write-Output&nbsp;'##&nbsp;We&nbsp;are&nbsp;trying&nbsp;to&nbsp;retain&nbsp;the&nbsp;date&nbsp;of&nbsp;the&nbsp;original&nbsp;file'</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;$blobSimpleName&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;($latestBlob.Name).Substring($latestBlob.Name.LastIndexOf(</span><span
+
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">/</span><span style="color: #e9f284;">'</span><span
+
+style="color: #f8f8f2;">)&nbsp;</span><span style="color: #ff79c6;">+</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #bd93f9;">1</span><span
+
+style="color: #f8f8f2;">)</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">#Write-Output&nbsp;'$blobSimpleName:&nbsp;'&nbsp;$blobSimpleName</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">#$sourceFileCreationTimes.$blobSimpleName&nbsp;=&nbsp;`&nbsp;#&nbsp;Put&nbsp;the&nbsp;needed&nbsp;data&nbsp;-as&nbsp;a&nbsp;string&nbsp;in&nbsp;the&nbsp;hashtable</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;$sourceFileCreationTimes.($tempCSVPath.Name)&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;Put&nbsp;the&nbsp;needed&nbsp;data&nbsp;-as&nbsp;a&nbsp;string&nbsp;in&nbsp;the&nbsp;hashtable&nbsp;-&nbsp;identified&nbsp;by&nbsp;the&nbsp;temp&nbsp;file</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;($latestBlob.BlobProperties.CreatedOn.DateTime&nbsp;|&nbsp;</span><span
+
+style="color: #8be9fd;">Get-Date</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #ff79c6;">-</span><span style="color: #f8f8f2;">format&nbsp;</span><span
+
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">yyyy-MM-dd&nbsp;HH:mm:ss.fff</span><span
+
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">)&nbsp;</span><span
+
+style="color: #ff79c6;">-as</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">string</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;Formatted&nbsp;as&nbsp;desired</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">#Write-Output&nbsp;'$latestBlob.BlobProperties.CreatedOn:'&nbsp;$latestBlob.BlobProperties.CreatedOn</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">#Write-Output&nbsp;'$sourceFileCreationTimes.$blobSimpleName:&nbsp;'&nbsp;$sourceFileCreationTimes.$blobSimpleName</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">if</span><span
+
+style="color: #f8f8f2;">&nbsp;($testMode)&nbsp;{</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #8be9fd;">Write-Output</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #ff79c6;">`$</span><span style="color: #f1fa8c;">tempCSVPath.Name&nbsp;</span><span
+
+style="color: #ff79c6;">$</span><span style="color: #f1fa8c;">(</span><span style="color: #f8f8f2;">$tempCSVPath.Name</span><span
+
+style="color: #f1fa8c;">)</span><span style="color: #e9f284;">"</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #8be9fd;">Write-Output</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">###&nbsp;</span><span style="color: #ff79c6;">`$</span><span
+
+style="color: #f1fa8c;">sourceFileCreationTimes.(</span><span style="color: #f8f8f2;">$tempCSVPath</span><span
+
+style="color: #f1fa8c;">.Name):&nbsp;</span><span style="color: #ff79c6;">$</span><span
+
+style="color: #f1fa8c;">(</span><span style="color: #f8f8f2;">$sourceFileCreationTimes</span><span
+
+style="color: #f1fa8c;">.(</span><span style="color: #f8f8f2;">$tempCSVPath.Name</span><span
+
+style="color: #f1fa8c;">))</span><span style="color: #e9f284;">"</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;}</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;}</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;</span><span style="color: #6272a4;">#&nbsp;Just&nbsp;download&nbsp;that&nbsp;blob</span></div><div><span
+
+style="color: #6272a4;">#&nbsp;&nbsp;&nbsp;&nbsp;$latestBlobContent&nbsp;=&nbsp;Get-AzStorageBlobContent&nbsp;`</span></div><div><span
+
+style="color: #6272a4;">#&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-Container&nbsp;$inputLocation.StorageContainer&nbsp;-Blob&nbsp;$latestBlob.Name&nbsp;-Destination&nbsp;$tempCSVPath&nbsp;-Context&nbsp;$inputStorageContext&nbsp;-Force</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;</span><span style="color: #6272a4;">#&nbsp;The&nbsp;above&nbsp;commented&nbsp;out&nbsp;code&nbsp;seems&nbsp;unneccesary?</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;$latestBlob&nbsp;|&nbsp;</span><span style="color: #8be9fd;">Get-AzStorageBlobContent</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">-</span><span
+
+style="color: #f8f8f2;">Destination&nbsp;$tempCSVPath</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;</span><span style="color: #6272a4;">######&nbsp;&nbsp;&nbsp;&nbsp;}</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;</span><span style="color: #6272a4;">######&nbsp;&nbsp;&nbsp;&nbsp;catch&nbsp;{&nbsp;Write-Output&nbsp;"Sorry,&nbsp;an&nbsp;error&nbsp;occured&nbsp;during&nbsp;downloading&nbsp;/&nbsp;preparation&nbsp;for&nbsp;downloading:&nbsp;&nbsp;$error"&nbsp;}&nbsp;#&gt;</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;</span><span style="color: #6272a4;">#&nbsp;If&nbsp;we&nbsp;successfully&nbsp;imported...</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;</span><span style="color: #ff79c6;">if</span><span
+
+style="color: #f8f8f2;">&nbsp;(</span><span style="color: #ff79c6;">-not</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #bd93f9;">$error</span><span
+
+style="color: #f8f8f2;">&nbsp;)&nbsp;{</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;Add&nbsp;this&nbsp;CSV&nbsp;to&nbsp;our&nbsp;array&nbsp;of&nbsp;CSV&nbsp;files&nbsp;-&nbsp;if&nbsp;we&nbsp;were&nbsp;able&nbsp;to&nbsp;successfully&nbsp;import</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;$inputFiles&nbsp;</span><span style="color: #ff79c6;">+=</span><span
+
+style="color: #f8f8f2;">&nbsp;$tempCSVPath</span></div><br><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #ff79c6;">if</span><span style="color: #f8f8f2;">&nbsp;($testMode)&nbsp;{</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">#&nbsp;Lets&nbsp;us&nbsp;look&nbsp;at&nbsp;the&nbsp;imported&nbsp;data</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #8be9fd;">Write-Output</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">###&nbsp;</span><span style="color: #ff79c6;">`$</span><span
+
+style="color: #f1fa8c;">latestBlob.Name:&nbsp;</span><span style="color: #ff79c6;">$</span><span
+
+style="color: #f1fa8c;">(</span><span style="color: #f8f8f2;">$latestBlob.Name</span><span
+
+style="color: #f1fa8c;">)</span><span style="color: #e9f284;">"</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$importedData&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #8be9fd;">Import-CSV</span><span style="color: #f8f8f2;">&nbsp;$tempCSVPath</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #8be9fd;">Write-Output</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">Second&nbsp;row&nbsp;of&nbsp;imported&nbsp;data</span><span
+
+style="color: #e9f284;">"</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$importedData[</span><span
+
+style="color: #bd93f9;">1</span><span style="color: #f8f8f2;">]&nbsp;|&nbsp;</span><span
+
+style="color: #8be9fd;">Format-List</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;}</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;}</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;</span><span
+
+style="color: #ff79c6;">else</span><span style="color: #f8f8f2;">&nbsp;{</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">#&nbsp;Show&nbsp;what&nbsp;storage&nbsp;acct/etc&nbsp;wasn't&nbsp;successful</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #8be9fd;">Write-output</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">Skipped&nbsp;adding&nbsp;the&nbsp;following&nbsp;due&nbsp;to&nbsp;errors&nbsp;retrieving&nbsp;data:</span><span
+
+style="color: #e9f284;">"</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">#Write-Output&nbsp;"Storage&nbsp;acct:&nbsp;"&nbsp;$inputLocation.StorageAcctName&nbsp;"&nbsp;-&nbsp;ResourceGroup:&nbsp;"&nbsp;$inputLocation.KeyResourceGroupName&nbsp;"&nbsp;-&nbsp;Storage&nbsp;Container:&nbsp;"&nbsp;$inputLocation.StorageContainer</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;$inputLocation&nbsp;|&nbsp;</span><span
+
+style="color: #8be9fd;">Format-List</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;}</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;</span><span style="color: #6272a4;">##&nbsp;We&nbsp;now&nbsp;have&nbsp;downloaded&nbsp;the&nbsp;CSV&nbsp;files,&nbsp;and&nbsp;have&nbsp;a&nbsp;list&nbsp;in&nbsp;the&nbsp;array&nbsp;$inputFiles</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;</span><span style="color: #ff79c6;">If</span><span
+
+style="color: #f8f8f2;">&nbsp;($testMode)&nbsp;{</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #8be9fd;">Write-Output</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">$sourceFileCreationTimes:&nbsp;</span><span
+
+style="color: #e9f284;">'</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;$sourceFileCreationTimes&nbsp;|&nbsp;</span><span
+
+style="color: #8be9fd;">Format-List</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;}</span></div><br><div><span
+
+style="color: #f8f8f2;">}</span></div><div><span style="color: #ff79c6;">elseif</span><span
+
+style="color: #f8f8f2;">&nbsp;($csvDataLocation&nbsp;</span><span style="color: #ff79c6;">-ieq</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">Local</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f8f8f2;">)&nbsp;{&nbsp;</span><span style="color: #6272a4;">#&nbsp;elif&nbsp;-&nbsp;from&nbsp;-&nbsp;&nbsp;($csvDataLocation&nbsp;-ieq&nbsp;"Azure")&nbsp;{</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;$inputFiles&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #8be9fd;">Get-ChildItem</span><span
+
+style="color: #f8f8f2;">&nbsp;$csvLocalPath&nbsp;|&nbsp;</span><span style="color: #8be9fd;">Select-Object</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">-</span><span
+
+style="color: #f8f8f2;">ExpandProperty&nbsp;FullName</span></div><br><div><span
+
+style="color: #f8f8f2;">}&nbsp;</span><span style="color: #6272a4;">#&nbsp;endif&nbsp;($csvDataLocation&nbsp;-ieq&nbsp;"Azure")&nbsp;&nbsp;-&nbsp;and&nbsp;-&nbsp;csvdarta</span></div><br><div><span
+
+style="color: #6272a4;">#########################&nbsp;END&nbsp;CSV&nbsp;DOWNLOAD&nbsp;#############################</span></div><br><div><span
+
+style="color: #6272a4;">##########################&nbsp;BEGIN&nbsp;DATA&nbsp;MERGE&nbsp;AND&nbsp;PROCESS&nbsp;#################</span></div><br><div><span
+
+style="color: #f8f8f2;">$reportObjectArray&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">@</span><span
+
+style="color: #f8f8f2;">()</span></div><br><br><div><span style="color: #6272a4;">#&nbsp;Initialize&nbsp;the&nbsp;hashtable&nbsp;that&nbsp;contains&nbsp;our&nbsp;total&nbsp;pricing&nbsp;for&nbsp;validation,&nbsp;we</span></div><div><span
+
+style="color: #6272a4;">#&nbsp;use&nbsp;zero&nbsp;floats&nbsp;in&nbsp;each,&nbsp;so&nbsp;we&nbsp;can&nbsp;increment&nbsp;later</span></div><div><span
+
+style="color: #f8f8f2;">$costTotalTable&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">@</span><span
+
+style="color: #f8f8f2;">{}</span></div><div><span style="color: #ff79c6;">ForEach</span><span
+
+style="color: #f8f8f2;">&nbsp;($iPriceField&nbsp;</span><span style="color: #ff79c6;">in</span><span
+
+style="color: #f8f8f2;">&nbsp;$priceTotalFields)&nbsp;{</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;$costTotalTable.$iPriceField&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #bd93f9;">0.0</span></div><div><span style="color: #f8f8f2;">}</span></div><br><div><span
+
+style="color: #6272a4;">###&nbsp;This&nbsp;is&nbsp;commented&nbsp;out&nbsp;because&nbsp;it&nbsp;prevents&nbsp;the&nbsp;debugging&nbsp;"Write-Output"&nbsp;commands&nbsp;from&nbsp;being&nbsp;visible</span></div><br><div><span
+
+style="color: #6272a4;">#&nbsp;&nbsp;&nbsp;&nbsp;$runTime&nbsp;=&nbsp;Measure-Command&nbsp;{&nbsp;##&nbsp;START&nbsp;MEASURE&nbsp;COMMAND&nbsp;##&nbsp;-&nbsp;was&nbsp;going&nbsp;to&nbsp;be:&nbsp;$reportArrayProcessingStartTime&nbsp;=&nbsp;Get-Date</span></div><br><div><span
+
+style="color: #ff79c6;">forEach</span><span style="color: #f8f8f2;">&nbsp;($iInputFile&nbsp;</span><span
+
+style="color: #ff79c6;">in</span><span style="color: #f8f8f2;">&nbsp;$inputFiles&nbsp;)&nbsp;{</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;$importData&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #8be9fd;">Import-CSV</span><span
+
+style="color: #f8f8f2;">&nbsp;$iInputFile</span></div><br><br><div><span style="color: #f8f8f2;">&nbsp;&nbsp;</span><span
+
+style="color: #ff79c6;">if</span><span style="color: #f8f8f2;">&nbsp;($testMode)&nbsp;{</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">##&nbsp;If&nbsp;we're&nbsp;in&nbsp;test&nbsp;mode,&nbsp;print&nbsp;information&nbsp;about&nbsp;the&nbsp;input&nbsp;files.&nbsp;And,</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">##&nbsp;only&nbsp;process&nbsp;a&nbsp;handful&nbsp;of&nbsp;input&nbsp;lines,&nbsp;to&nbsp;shorten&nbsp;runtime&nbsp;&amp;&nbsp;limit&nbsp;report&nbsp;length</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #8be9fd;">Write-Output</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">===&nbsp;SOME&nbsp;INFO&nbsp;ABOUT&nbsp;THE&nbsp;INPUT&nbsp;FILE&nbsp;===</span><span
+
+style="color: #e9f284;">"</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #8be9fd;">get-item</span><span style="color: #f8f8f2;">&nbsp;$iInputFile&nbsp;|&nbsp;</span><span
+
+style="color: #8be9fd;">format-List</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;$importData&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #ff79c6;">$</span><span style="color: #f8f8f2;">($importData&nbsp;|&nbsp;</span><span
+
+style="color: #8be9fd;">Select-Object</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #ff79c6;">-</span><span style="color: #f8f8f2;">First&nbsp;$testModeRows)</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;}</span></div><br><div><span style="color: #f8f8f2;">&nbsp;&nbsp;$totalRows&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;$importData.Length</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;</span><span style="color: #ff79c6;">if</span><span
+
+style="color: #f8f8f2;">&nbsp;($testMode)&nbsp;{&nbsp;</span><span style="color: #8be9fd;">Write-Output</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">Processing&nbsp;data.&nbsp;Total&nbsp;rows:&nbsp;</span><span
+
+style="color: #f8f8f2;">$totalRows</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f8f8f2;">&nbsp;}</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;$itemNum&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;[</span><span
+
+style="color: #ff79c6;">int32</span><span style="color: #f8f8f2;">]&nbsp;</span><span
+
+style="color: #bd93f9;">0</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">###&nbsp;Loop&nbsp;through&nbsp;the&nbsp;CSV&nbsp;/&nbsp;data&nbsp;containing&nbsp;the&nbsp;full&nbsp;report</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;</span><span style="color: #ff79c6;">foreach</span><span
+
+style="color: #f8f8f2;">&nbsp;($importItem&nbsp;</span><span style="color: #ff79c6;">in</span><span
+
+style="color: #f8f8f2;">&nbsp;$importData)&nbsp;{</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #ff79c6;">if</span><span style="color: #f8f8f2;">&nbsp;($testMode)&nbsp;{&nbsp;</span><span
+
+style="color: #8be9fd;">write-output</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">Working&nbsp;on&nbsp;item:&nbsp;</span><span
+
+style="color: #ff79c6;">$</span><span style="color: #f1fa8c;">(</span><span style="color: #f8f8f2;">$importItem</span><span
+
+style="color: #f1fa8c;">.</span><span style="color: #f8f8f2;">$uniqueIdentifierFieldName</span><span
+
+style="color: #f1fa8c;">)</span><span style="color: #e9f284;">"</span><span style="color: #f8f8f2;">&nbsp;}</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">if</span><span
+
+style="color: #f8f8f2;">&nbsp;($writeProgress)&nbsp;{</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;Probably&nbsp;not&nbsp;useful&nbsp;when&nbsp;running&nbsp;as&nbsp;a&nbsp;runbook</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #8be9fd;">Write-Progress</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">-</span><span
+
+style="color: #f8f8f2;">PercentComplete&nbsp;($itemNum&nbsp;</span><span style="color: #ff79c6;">/</span><span
+
+style="color: #f8f8f2;">&nbsp;$totalRows&nbsp;</span><span style="color: #ff79c6;">*</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #bd93f9;">100</span><span
+
+style="color: #f8f8f2;">)&nbsp;</span><span style="color: #ff79c6;">-</span><span
+
+style="color: #f8f8f2;">Activity&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">Processing&nbsp;resources</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;</span><span style="color: #ff79c6;">-</span><span
+
+style="color: #f8f8f2;">Status&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">Item&nbsp;#</span><span style="color: #f8f8f2;">$itemNum</span><span
+
+style="color: #f1fa8c;">&nbsp;/&nbsp;</span><span style="color: #f8f8f2;">$totalRows</span><span
+
+style="color: #e9f284;">"</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;}</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;$reportItemHashtable&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #ff79c6;">@</span><span style="color: #f8f8f2;">{}&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;Initializes&nbsp;the&nbsp;empty&nbsp;hashtable&nbsp;(to&nbsp;become&nbsp;a&nbsp;custom&nbsp;object)&nbsp;for&nbsp;this&nbsp;report&nbsp;item</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">###&nbsp;Loop&nbsp;through&nbsp;all&nbsp;the&nbsp;needed&nbsp;data&nbsp;types&nbsp;(as&nbsp;imported)</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">foreach</span><span
+
+style="color: #f8f8f2;">&nbsp;($sourcePropertyObj&nbsp;</span><span style="color: #ff79c6;">in</span><span
+
+style="color: #f8f8f2;">&nbsp;$dataImportTypesArray)&nbsp;{</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">###&nbsp;Just&nbsp;give&nbsp;us&nbsp;a&nbsp;nicely-named&nbsp;variable&nbsp;for&nbsp;the&nbsp;Source&nbsp;Property&nbsp;(Name)</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$sourcePropertyName&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;$sourcePropertyObj.SourcePropertyName</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$dataType&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;$sourcePropertyObj.PSType</span></div><br><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">if</span><span
+
+style="color: #f8f8f2;">&nbsp;($sourcePropertyObj.RemapName)&nbsp;{&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;Do&nbsp;we&nbsp;need&nbsp;to&nbsp;remap&nbsp;the&nbsp;destination&nbsp;property&nbsp;name?</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #ff79c6;">if</span><span style="color: #f8f8f2;">&nbsp;($testMode)&nbsp;{</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #8be9fd;">Write-Output</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">Remapping&nbsp;property&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">&nbsp;$sourcePropertyObj.SourcePropertyName</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$destinationPropertyName&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;$sourcePropertyObj.RemapName</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;For&nbsp;cases&nbsp;of&nbsp;'overloading'&nbsp;(source&nbsp;field&nbsp;was&nbsp;already&nbsp;added)</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">###################&nbsp;WILL&nbsp;NEED&nbsp;FIX&nbsp;#####################</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">#$someNewObject.$destinationPropertyName&nbsp;=&nbsp;$propertyToAdd</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}&nbsp;</span><span
+
+style="color: #ff79c6;">else</span><span style="color: #f8f8f2;">&nbsp;{</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$destinationPropertyName&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;$sourcePropertyName&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;We&nbsp;do&nbsp;not&nbsp;need&nbsp;to&nbsp;remap&nbsp;the&nbsp;destination&nbsp;property&nbsp;name</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$destinationPropertyName&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;$sourcePropertyName&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;We&nbsp;do&nbsp;not&nbsp;need&nbsp;to&nbsp;remap&nbsp;the&nbsp;destination&nbsp;property&nbsp;name</span></div><br><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">##&nbsp;Check&nbsp;our&nbsp;field&nbsp;data&nbsp;types&nbsp;for&nbsp;reformatting&nbsp;or&nbsp;renaming&nbsp;needs</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">#&nbsp;Is&nbsp;it&nbsp;a&nbsp;resource&nbsp;ID&nbsp;(and&nbsp;we&nbsp;need&nbsp;to&nbsp;shorten&nbsp;that?&nbsp;And&nbsp;does&nbsp;it&nbsp;HAVE&nbsp;a&nbsp;resource&nbsp;ID?</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">if</span><span
+
+style="color: #f8f8f2;">&nbsp;($shortenResourceId&nbsp;</span><span style="color: #ff79c6;">-and</span><span
+
+style="color: #f8f8f2;">&nbsp;$destinationPropertyName&nbsp;</span><span style="color: #ff79c6;">-ieq</span><span
+
+style="color: #f8f8f2;">&nbsp;$uniqueIdentifierFieldName&nbsp;</span><span style="color: #ff79c6;">-and</span><span
+
+style="color: #f8f8f2;">&nbsp;$importItem.$uniqueIdentifierFieldName)&nbsp;{</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;Split&nbsp;the&nbsp;resource&nbsp;ID&nbsp;at&nbsp;the&nbsp;slashes&nbsp;into&nbsp;an&nbsp;array,&nbsp;then</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;rejoin&nbsp;it,&nbsp;only&nbsp;selecting&nbsp;the&nbsp;last&nbsp;(2)&nbsp;entries&nbsp;[-2,-1]</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$valueToSave&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;[</span><span
+
+style="color: #ff79c6;">string</span><span style="color: #f8f8f2;">]::Join(</span><span
+
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">/</span><span style="color: #e9f284;">'</span><span
+
+style="color: #f8f8f2;">,(($importItem.$uniqueIdentifierFieldName).Split(</span><span
+
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">/</span><span style="color: #e9f284;">'</span><span
+
+style="color: #f8f8f2;">)[(</span><span style="color: #bd93f9;">-1</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #ff79c6;">*</span><span style="color: #f8f8f2;">&nbsp;$shortenedFieldCount)</span><span
+
+style="color: #ff79c6;">..</span><span style="color: #bd93f9;">-1</span><span style="color: #f8f8f2;">]))</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">##&nbsp;&nbsp;OK&nbsp;-&nbsp;not&nbsp;a&nbsp;resourceID&nbsp;(with&nbsp;shortening&nbsp;needs)&nbsp;-&nbsp;is&nbsp;it&nbsp;currency?&nbsp;If&nbsp;so,&nbsp;let's&nbsp;format&nbsp;it&nbsp;properly</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}&nbsp;</span><span
+
+style="color: #6272a4;">&lt;#</span></div><br><div><span style="color: #6272a4;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;##&nbsp;Disabled&nbsp;because&nbsp;this&nbsp;breaks&nbsp;the&nbsp;math&nbsp;section!&nbsp;We&nbsp;need&nbsp;to&nbsp;relocate&nbsp;this.</span></div><div><span
+
+style="color: #6272a4;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;elseif&nbsp;($currencyFields&nbsp;-contains&nbsp;$sourcePropertyName)&nbsp;{</span></div><div><span
+
+style="color: #6272a4;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$valueToSave&nbsp;=&nbsp;"{0:c}"&nbsp;-f&nbsp;[double]$importItem.$sourcePropertyName&nbsp;#&nbsp;Cast&nbsp;it&nbsp;to&nbsp;a&nbsp;double,&nbsp;and&nbsp;format</span></div><div><span
+
+style="color: #6272a4;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}&nbsp;#&gt;</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #ff79c6;">else</span><span style="color: #f8f8f2;">&nbsp;{</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">###&nbsp;Value&nbsp;to&nbsp;save&nbsp;=&nbsp;no&nbsp;formattimg&nbsp;/&nbsp;changes&nbsp;needed</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$valueToSave&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;$importItem.$sourcePropertyName</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">#&nbsp;Is&nbsp;it&nbsp;a&nbsp;date?&nbsp;We&nbsp;need&nbsp;to&nbsp;reformat&nbsp;it&nbsp;as&nbsp;well.</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">if</span><span
+
+style="color: #f8f8f2;">&nbsp;(($dataType&nbsp;</span><span style="color: #ff79c6;">-imatch</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">date</span><span style="color: #e9f284;">"</span><span style="color: #f8f8f2;">)&nbsp;</span><span
+
+style="color: #ff79c6;">-and</span><span style="color: #f8f8f2;">&nbsp;$valueToSave&nbsp;)&nbsp;{</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$propertyToAdd&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;($valueToSave&nbsp;|&nbsp;</span><span
+
+style="color: #8be9fd;">Get-Date</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #ff79c6;">-</span><span style="color: #f8f8f2;">format&nbsp;</span><span
+
+style="color: #e9f284;">'</span><span style="color: #f1fa8c;">yyyy-MM-dd&nbsp;HH:mm:ss.fff</span><span
+
+style="color: #e9f284;">'</span><span style="color: #f8f8f2;">)&nbsp;</span><span
+
+style="color: #ff79c6;">-as</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">string</span><span
+
+style="color: #e9f284;">"</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">else</span><span
+
+style="color: #f8f8f2;">&nbsp;{</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$propertyToAdd&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;$valueToSave&nbsp;</span><span
+
+style="color: #ff79c6;">-as</span><span style="color: #f8f8f2;">&nbsp;$dataType</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$reportItemHashtable.$destinationPropertyName&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;$propertyToAdd&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;|&nbsp;Add-Member&nbsp;-Name&nbsp;$destinationPropertyName&nbsp;-Type&nbsp;NoteProperty&nbsp;-Value&nbsp;$propertyToAdd</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;}</span></div><br><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">###&nbsp;Do&nbsp;we&nbsp;want&nbsp;to&nbsp;include&nbsp;our&nbsp;runtime&nbsp;in&nbsp;this&nbsp;export?</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">if</span><span
+
+style="color: #f8f8f2;">&nbsp;($scriptRuntimeField)&nbsp;{</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$reportItemHashtable.$scriptRuntimeField&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;$scriptRunTimeFormatted</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;}</span></div><br><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">###&nbsp;Do&nbsp;we&nbsp;include&nbsp;the&nbsp;origin&nbsp;blob&nbsp;creation&nbsp;time?</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">if</span><span
+
+style="color: #f8f8f2;">&nbsp;($fileCreatedTimeField)&nbsp;{</span></div><div><span
+
+style="color: #6272a4;">&lt;#</span></div><div><span style="color: #6272a4;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;if&nbsp;($testmode)&nbsp;{</span></div><div><span
+
+style="color: #6272a4;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Write-Output&nbsp;'####&nbsp;&nbsp;Our&nbsp;$sourceFileCreationTimes&nbsp;hashtable:'</span></div><div><span
+
+style="color: #6272a4;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$sourceFileCreationTimes</span></div><div><span
+
+style="color: #6272a4;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Write-Output&nbsp;'###&nbsp;This&nbsp;will&nbsp;be&nbsp;the&nbsp;addressing&nbsp;for&nbsp;the&nbsp;hash&nbsp;table&nbsp;####&nbsp;$iInputFile:&nbsp;'&nbsp;$iInputFile</span></div><div><span
+
+style="color: #6272a4;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}</span></div><div><span
+
+style="color: #6272a4;">#&gt;</span></div><br><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$reportItemHashtable.$fileCreatedTimeField&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;$sourceFileCreationTimes.($iInputFile.Name)</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;}</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;THE&nbsp;FOLLOWING&nbsp;IS&nbsp;NOT&nbsp;IN&nbsp;THE&nbsp;RIGHT&nbsp;NESTING&nbsp;LEVEL??</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">#else&nbsp;{&nbsp;write-output&nbsp;"we&nbsp;dont&nbsp;have&nbsp;fileCreatedTimeField?????"&nbsp;}</span></div><br><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">#&nbsp;Generate&nbsp;the&nbsp;summary&nbsp;report&nbsp;(if&nbsp;desired)</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">if</span><span
+
+style="color: #f8f8f2;">&nbsp;($generateSummaryReport)&nbsp;{</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">#&nbsp;Do&nbsp;we&nbsp;have&nbsp;a&nbsp;resourceID?</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">if</span><span
+
+style="color: #f8f8f2;">&nbsp;(&nbsp;$reportItemHashtable.$uniqueIdentifierFieldName&nbsp;)&nbsp;{&nbsp;$curResourceId&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;$reportItemHashtable.$uniqueIdentifierFieldName&nbsp;}&nbsp;</span><span
+
+style="color: #ff79c6;">else</span><span style="color: #f8f8f2;">&nbsp;{</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">#no&nbsp;resource&nbsp;ID</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$curResourceId&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">NO_RESOURCE_ID</span><span
+
+style="color: #e9f284;">"</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$resourcesWithoutID&nbsp;</span><span
+
+style="color: #ff79c6;">+=</span><span style="color: #f8f8f2;">&nbsp;[</span><span
+
+style="color: #ff79c6;">pscustomobject</span><span style="color: #f8f8f2;">]$reportItemHashtable</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">if</span><span
+
+style="color: #f8f8f2;">&nbsp;(</span><span style="color: #ff79c6;">-not</span><span
+
+style="color: #f8f8f2;">&nbsp;$summaryReportTable.$curResourceId)&nbsp;{</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;Do&nbsp;we&nbsp;already&nbsp;have&nbsp;an&nbsp;entry,&nbsp;or&nbsp;do&nbsp;we&nbsp;need&nbsp;to&nbsp;make&nbsp;one?</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$tempReportHashTable&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;$reportItemHashtable&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;We&nbsp;need&nbsp;to&nbsp;add&nbsp;some&nbsp;additional&nbsp;"columns",&nbsp;so,&nbsp;temp.&nbsp;var</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;The&nbsp;following&nbsp;creates&nbsp;the&nbsp;field</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$tempReportHashTable.</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">TOTAL_</span><span
+
+style="color: #f8f8f2;">$summaryReportBillingColumn</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;$reportItemHashtable.$summaryReportBillingColumn</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #ff79c6;">ForEach</span><span style="color: #f8f8f2;">&nbsp;($iFieldToRemove&nbsp;</span><span
+
+style="color: #ff79c6;">in</span><span style="color: #f8f8f2;">&nbsp;$summaryFieldsToRemove)&nbsp;{</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;Axe&nbsp;undesired&nbsp;fields</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$tempReportHashTable.Remove($iFieldToRemove)</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}</span></div><br><br><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$summaryReportTable.$curResourceId&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;[</span><span
+
+style="color: #ff79c6;">pscustomobject</span><span style="color: #f8f8f2;">]$tempReportHashTable&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;Create&nbsp;the&nbsp;table&nbsp;entry,&nbsp;entering&nbsp;our&nbsp;first&nbsp;row</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">else</span><span
+
+style="color: #f8f8f2;">&nbsp;{</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;We&nbsp;do&nbsp;already&nbsp;have&nbsp;this&nbsp;entry,&nbsp;so&nbsp;let's&nbsp;add&nbsp;the&nbsp;current&nbsp;cost&nbsp;item</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$summaryReportTable.$curResourceId.</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">TOTAL_</span><span
+
+style="color: #f8f8f2;">$summaryReportBillingColumn</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">+=</span><span
+
+style="color: #f8f8f2;">&nbsp;$reportItemHashtable.$summaryReportBillingColumn</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;}</span></div><br><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">###&nbsp;Generate&nbsp;the&nbsp;report&nbsp;object&nbsp;from&nbsp;our&nbsp;hashtable&nbsp;(much&nbsp;faster&nbsp;than&nbsp;if&nbsp;we&nbsp;did&nbsp;Add-Member&nbsp;for&nbsp;each&nbsp;item)</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;$someNewObject&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;[</span><span
+
+style="color: #ff79c6;">PSCustomObject</span><span style="color: #f8f8f2;">]$reportItemHashtable</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">#$costTotal+=$someNewObject.paygCostInUsd</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">###&nbsp;Run&nbsp;through&nbsp;the&nbsp;fields-to-be-totaled</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">ForEach</span><span
+
+style="color: #f8f8f2;">&nbsp;($iPriceField&nbsp;</span><span style="color: #ff79c6;">in</span><span
+
+style="color: #f8f8f2;">&nbsp;$priceTotalFields)&nbsp;{</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #ff79c6;">if</span><span style="color: #f8f8f2;">&nbsp;(&nbsp;$someNewObject.$iPriceField)&nbsp;{&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;Don't&nbsp;try&nbsp;to&nbsp;add&nbsp;it&nbsp;if&nbsp;it&nbsp;doesn't&nbsp;exist&nbsp;here.</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$costTotalTable.$iPriceField&nbsp;</span><span
+
+style="color: #ff79c6;">+=</span><span style="color: #f8f8f2;">&nbsp;$someNewObject.$iPriceField&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;Grab&nbsp;the&nbsp;appropriate&nbsp;pricing</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;}</span></div><br><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;$reportObjectArray&nbsp;</span><span
+
+style="color: #ff79c6;">+=</span><span style="color: #f8f8f2;">&nbsp;$someNewObject</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">if</span><span
+
+style="color: #f8f8f2;">&nbsp;($testMode)&nbsp;{</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;Write-Output&nbsp;"Here's&nbsp;the&nbsp;importitem.&nbsp;&nbsp;Type:&nbsp;$($importItem.gettype())"</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #6272a4;">#&nbsp;$importItem&nbsp;|&nbsp;fl</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;}</span></div><br><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;$itemNum</span><span
+
+style="color: #ff79c6;">++</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;}</span></div><div><span
+
+style="color: #f8f8f2;">}&nbsp;</span><span style="color: #6272a4;">#&nbsp;End&nbsp;loop&nbsp;($iInputFile&nbsp;in&nbsp;$inputFiles)</span></div><br><div><span
+
+style="color: #6272a4;">###&nbsp;Generate&nbsp;custom&nbsp;entries&nbsp;for&nbsp;any&nbsp;results&nbsp;that&nbsp;did&nbsp;not&nbsp;have&nbsp;resource&nbsp;IDs</span></div><br><div><span
+
+style="color: #f8f8f2;">$idIndex&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #bd93f9;">1</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #6272a4;">#&nbsp;So&nbsp;we&nbsp;can&nbsp;number&nbsp;these</span></div><div><span
+
+style="color: #ff79c6;">ForEach</span><span style="color: #f8f8f2;">&nbsp;($iItemWithoutId&nbsp;</span><span
+
+style="color: #ff79c6;">in</span><span style="color: #f8f8f2;">&nbsp;$resourcesWithoutID)&nbsp;{</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;$iFakeResouceId&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">NO_RESOURCE_ID_</span><span style="color: #f8f8f2;">$idIndex</span><span
+
+style="color: #e9f284;">"</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;$summaryReportTable.$iFakeResouceId&nbsp;</span><span
+
+style="color: #ff79c6;">+=</span><span style="color: #f8f8f2;">&nbsp;$iItemWithoutId&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;Insert&nbsp;the&nbsp;item&nbsp;#</span><span style="color: #ff79c6;">Requires&nbsp;-RunAsAdministrator</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;$summaryReportTable.</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">TOTAL_</span><span style="color: #f8f8f2;">$summaryReportBillingColumn</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;$iItemWithoutId.$summaryReportBillingColumn</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;$idIndex</span><span style="color: #ff79c6;">++</span></div><div><span
+
+style="color: #f8f8f2;">}</span></div><div><span style="color: #6272a4;">#&nbsp;&nbsp;&nbsp;&nbsp;}##&nbsp;MEASURE-COMMAND&nbsp;##&nbsp;#$reportArrayProcessingEndTime&nbsp;=&nbsp;Get-Date</span></div><br><div><span
+
+style="color: #8be9fd;">Write-Output</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">##&nbsp;REPORT&nbsp;ARRAY&nbsp;PROCESSING&nbsp;COMPLETED.&nbsp;TOOK&nbsp;</span><span
+
+style="color: #ff79c6;">$</span><span style="color: #f1fa8c;">(</span><span style="color: #f8f8f2;">$runTime.TotalSeconds</span><span
+
+style="color: #f1fa8c;">)</span><span style="color: #f1fa8c;">&nbsp;SECONDS&nbsp;##</span><span
+
+style="color: #e9f284;">"</span></div><br><div><span style="color: #8be9fd;">Write-Output</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">###############################################</span><span
+
+style="color: #e9f284;">"</span></div><div><span style="color: #8be9fd;">Write-Output</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">#&nbsp;Cost&nbsp;Total&nbsp;Report&nbsp;(rounded&nbsp;to&nbsp;nearest&nbsp;cent)&nbsp;#</span><span
+
+style="color: #e9f284;">"</span></div><div><span style="color: #8be9fd;">Write-Output</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">###############################################</span><span
+
+style="color: #e9f284;">"</span></div><div><span style="color: #6272a4;">#write-output&nbsp;"#&nbsp;format-table&nbsp;magic"</span></div><br><div><span
+
+style="color: #6272a4;">#$costTotalTable&nbsp;|&nbsp;Format-Table&nbsp;@{L=’Field’;E={$_.Key}},&nbsp;@{L=’Price’;E={[math]::Round($_.Value,2)}}</span></div><br><div><span
+
+style="color: #8be9fd;">Write-Output</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">Field&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Price&nbsp;Total</span><span
+
+style="color: #e9f284;">"</span></div><div><span style="color: #8be9fd;">Write-Output</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">###############################################</span><span
+
+style="color: #e9f284;">"</span></div><div><span style="color: #ff79c6;">ForEach</span><span
+
+style="color: #f8f8f2;">&nbsp;($iPriceField&nbsp;</span><span style="color: #ff79c6;">in</span><span
+
+style="color: #f8f8f2;">&nbsp;$priceTotalFields)&nbsp;{</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;&nbsp;&nbsp;&nbsp;Write-Output&nbsp;"$($iPriceField):&nbsp;$([math]::Round($costTotalTable.$iPriceField,2))"&nbsp;#&nbsp;"Fancy"&nbsp;formatting&nbsp;-&nbsp;just&nbsp;round&nbsp;to&nbsp;two&nbsp;places</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;</span><span style="color: #8be9fd;">Write-Output</span><span
+
+style="color: #f8f8f2;">&nbsp;(</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">{0,-30}&nbsp;{1,40:n2}</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">-f</span><span
+
+style="color: #f8f8f2;">&nbsp;$iPriceField,&nbsp;$costTotalTable.$iPriceField)</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;</span><span style="color: #6272a4;">#&nbsp;&nbsp;&nbsp;&nbsp;"$($iPriceField):&nbsp;$([math]::Round($costTotalTable.$iPriceField,2))"&nbsp;#&nbsp;"Fancy"&nbsp;formatting&nbsp;-&nbsp;just&nbsp;round&nbsp;to&nbsp;two&nbsp;places</span></div><div><span
+
+style="color: #f8f8f2;">}</span></div><br><div><span style="color: #6272a4;">&lt;#</span></div><div><span
+
+style="color: #6272a4;">&nbsp;&nbsp;No&nbsp;longer&nbsp;used&nbsp;-&nbsp;standard&nbsp;report&nbsp;output</span></div><div><span
+
+style="color: #6272a4;">#&gt;</span></div><div><span style="color: #6272a4;">#$tempTempPath&nbsp;=&nbsp;[system.io.path]::GetTempPath()</span></div><div><span
+
+style="color: #6272a4;">#$reportFileName&nbsp;=&nbsp;"$tempTempPath/$outputBaseNameFull-$(get-date&nbsp;-Format&nbsp;'yyyy-MM-dd_HHmm')$testModeString.xml"</span></div><div><span
+
+style="color: #6272a4;">#$csvReportFileName&nbsp;=&nbsp;"$tempTempPath/$outputBaseNameFull.csv"</span></div><div><span
+
+style="color: #6272a4;">#$jsonReportFileName&nbsp;=&nbsp;"$tempTempPath/$outputBaseNameFull.json"</span></div><div><span
+
+style="color: #6272a4;">#$reportObjectArray&nbsp;|&nbsp;Export-CLIXML&nbsp;$reportFileName</span></div><div><span
+
+style="color: #6272a4;">#$reportObjectArray&nbsp;|&nbsp;Export-CSV&nbsp;-NoTypeInformation&nbsp;$csvReportFileName</span></div><div><span
+
+style="color: #6272a4;">#$reportObjectArray&nbsp;|&nbsp;ConvertTo-Json&nbsp;&gt;&nbsp;$jsonReportFileName</span></div><br><br><div><span
+
+style="color: #ff79c6;">if</span><span style="color: #f8f8f2;">&nbsp;($generateSummaryReport)&nbsp;{</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;$summaryReportFileName&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f8f8f2;">$tempTempPath</span><span style="color: #f1fa8c;">/SummaryReportOnly-</span><span
+
+style="color: #f8f8f2;">$outputBaseNameFull</span><span style="color: #f1fa8c;">.csv</span><span
+
+style="color: #e9f284;">"</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;$summaryReportTable.Values&nbsp;|&nbsp;</span><span
+
+style="color: #8be9fd;">Export-CSV</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #ff79c6;">-</span><span style="color: #f8f8f2;">NoTypeInformation&nbsp;&nbsp;$summaryReportFileName</span></div><div><span
+
+style="color: #6272a4;">#&nbsp;&nbsp;Set-AzStorageBlobContent&nbsp;-force&nbsp;-File&nbsp;$summaryReportFileName&nbsp;-Container&nbsp;$outputStorageContainer&nbsp;-BlobType&nbsp;"Block"&nbsp;-Context&nbsp;$outputStorageContext&nbsp;-Verbose</span></div><div><span
+
+style="color: #f8f8f2;">}</span></div><br><div><span style="color: #6272a4;">&lt;#</span></div><div><span
+
+style="color: #6272a4;">&nbsp;Generate&nbsp;the&nbsp;"cleaned"&nbsp;report&nbsp;array&nbsp;-&nbsp;we&nbsp;may&nbsp;or&nbsp;may&nbsp;not&nbsp;want&nbsp;to&nbsp;have&nbsp;this</span></div><div><span
+
+style="color: #6272a4;">&nbsp;chunk&nbsp;&nbsp;instead&nbsp;be&nbsp;part&nbsp;of&nbsp;the&nbsp;mail&nbsp;script?</span></div><div><span
+
+style="color: #6272a4;">#&gt;</span></div><br><div><span style="color: #6272a4;">#&nbsp;Simple&nbsp;version&nbsp;-&nbsp;unedited&nbsp;()</span></div><div><span
+
+style="color: #ff79c6;">if</span><span style="color: #f8f8f2;">&nbsp;($sendUnabridgedReport)&nbsp;{</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;$formattedReportArray&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;[</span><span style="color: #ff79c6;">array</span><span
+
+style="color: #f8f8f2;">]$summaryReportTable.Values</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;$totalRows&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;$formattedReportArray.Length</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;}&nbsp;</span><span style="color: #ff79c6;">else</span><span
+
+style="color: #f8f8f2;">&nbsp;{&nbsp;</span><span style="color: #6272a4;">#&nbsp;We're&nbsp;going&nbsp;to&nbsp;send&nbsp;an&nbsp;abridged&nbsp;report!</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;$formattedReportArray</span><span style="color: #ff79c6;">=@</span><span
+
+style="color: #f8f8f2;">()</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;Cast&nbsp;this&nbsp;to&nbsp;an&nbsp;array&nbsp;(and&nbsp;sort&nbsp;it&nbsp;by&nbsp;the&nbsp;relevant&nbsp;field)</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;$unformattedReportArray&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;([</span><span style="color: #ff79c6;">array</span><span
+
+style="color: #f8f8f2;">]$summaryReportTable.Values&nbsp;|&nbsp;</span><span style="color: #8be9fd;">Sort-Object</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">-</span><span
+
+style="color: #f8f8f2;">Property&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">TOTAL_</span><span style="color: #f8f8f2;">$summaryReportBillingColumn</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #ff79c6;">-</span><span style="color: #f8f8f2;">Descending)</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;$totalRows&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;$unformattedReportArray.Length</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;$itemNum</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #bd93f9;">0</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;</span><span
+
+style="color: #ff79c6;">foreach</span><span style="color: #f8f8f2;">&nbsp;($iReportItem&nbsp;</span><span
+
+style="color: #ff79c6;">in</span><span style="color: #f8f8f2;">&nbsp;$unformattedReportArray)&nbsp;{</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">if</span><span
+
+style="color: #f8f8f2;">&nbsp;($writeProgress)&nbsp;{</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;Probably&nbsp;not&nbsp;useful&nbsp;when&nbsp;running&nbsp;as&nbsp;a&nbsp;runbook</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #8be9fd;">Write-Progress</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">-</span><span
+
+style="color: #f8f8f2;">PercentComplete&nbsp;($itemNum&nbsp;</span><span style="color: #ff79c6;">/</span><span
+
+style="color: #f8f8f2;">&nbsp;$totalRows&nbsp;</span><span style="color: #ff79c6;">*</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #bd93f9;">100</span><span
+
+style="color: #f8f8f2;">)&nbsp;</span><span style="color: #ff79c6;">-</span><span
+
+style="color: #f8f8f2;">Activity&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">Reformatting&nbsp;resources</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;</span><span style="color: #ff79c6;">-</span><span
+
+style="color: #f8f8f2;">Status&nbsp;</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">Item&nbsp;#</span><span style="color: #f8f8f2;">$itemNum</span><span
+
+style="color: #f1fa8c;">&nbsp;/&nbsp;</span><span style="color: #f8f8f2;">$totalRows</span><span
+
+style="color: #e9f284;">"</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;}</span></div><br><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;$formattedReportArray</span><span
+
+style="color: #ff79c6;">+=</span><span style="color: #f8f8f2;">&nbsp;($iReportItem&nbsp;|&nbsp;</span><span
+
+style="color: #8be9fd;">Select-Object</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #ff79c6;">-</span><span style="color: #f8f8f2;">Property&nbsp;$uniqueIdentifierFieldName,</span><span
+
+style="color: #ff79c6;">@</span><span style="color: #f8f8f2;">{Name&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">TOTAL_</span><span
+
+style="color: #f8f8f2;">$summaryReportBillingColumn</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f8f8f2;">;&nbsp;Expression&nbsp;</span><span style="color: #ff79c6;">=</span><span
+
+style="color: #f8f8f2;">&nbsp;{</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f1fa8c;">{0:c}</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #ff79c6;">-f</span><span
+
+style="color: #f8f8f2;">&nbsp;[</span><span style="color: #ff79c6;">double</span><span
+
+style="color: #f8f8f2;">]</span><span style="color: #bd93f9;">$_</span><span style="color: #f8f8f2;">.</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">TOTAL_</span><span
+
+style="color: #f8f8f2;">$summaryReportBillingColumn</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f8f8f2;">}},meterCategory,meterSubCategory,consumedService,publisherName,ProductName,serviceFamily)</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;$itemNum</span><span style="color: #ff79c6;">++</span><span
+
+style="color: #f8f8f2;">&nbsp;</span><span style="color: #6272a4;">#&nbsp;Add&nbsp;to&nbsp;our&nbsp;item&nbsp;number&nbsp;count,&nbsp;so&nbsp;we&nbsp;can&nbsp;update&nbsp;progress</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;}</span></div><div><span style="color: #f8f8f2;">}&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;end&nbsp;of&nbsp;"send&nbsp;abridged&nbsp;report"</span></div><br><div><span
+
+style="color: #ff79c6;">if</span><span style="color: #f8f8f2;">&nbsp;($sendEmailReport)&nbsp;{&nbsp;</span><span
+
+style="color: #6272a4;">#&nbsp;Send&nbsp;the&nbsp;report&nbsp;using&nbsp;the&nbsp;appropriate&nbsp;custom&nbsp;module!</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;</span><span style="color: #8be9fd;">Import-Module</span><span
+
+style="color: #f8f8f2;">&nbsp;XyzIP.MailFunctions</span></div><br><div><span style="color: #f8f8f2;">&nbsp;&nbsp;$reportDescription&nbsp;</span><span
+
+style="color: #ff79c6;">=</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #e9f284;">@"</span></div><div><span style="color: #f1fa8c;">This&nbsp;is&nbsp;a&nbsp;report&nbsp;of&nbsp;the&nbsp;overall&nbsp;Azure&nbsp;usage&nbsp;for&nbsp;</span><span
+
+style="color: #f8f8f2;">$clientName</span><span style="color: #f1fa8c;">&nbsp;sorted&nbsp;by&nbsp;TOTAL_</span><span
+
+style="color: #ff79c6;">$</span><span style="color: #f1fa8c;">(</span><span style="color: #f8f8f2;">$summaryReportBillingColumn</span><span
+
+style="color: #f1fa8c;">)</span></div><div><span style="color: #f1fa8c;">&lt;br&nbsp;/&gt;&lt;br&nbsp;/&gt;&nbsp;Result&nbsp;count:&nbsp;</span><span
+
+style="color: #f8f8f2;">$totalRows</span><span style="color: #f1fa8c;">&lt;br&nbsp;/&gt;</span></div><div><span
+
+style="color: #e9f284;">"@</span></div><br><div><span style="color: #f8f8f2;">&nbsp;&nbsp;</span><span
+
+style="color: #8be9fd;">Send-XyzIPEmailReportData</span><span style="color: #f8f8f2;">&nbsp;</span><span
+
+style="color: #ff79c6;">-</span><span style="color: #f8f8f2;">ReportSubject&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">Azure&nbsp;Billing&nbsp;Summary&nbsp;(</span><span
+
+style="color: #f8f8f2;">$clientName</span><span style="color: #f1fa8c;">)-&nbsp;</span><span
+
+style="color: #f8f8f2;">$scriptStartTime</span><span style="color: #e9f284;">"</span><span
+
+style="color: #f8f8f2;">&nbsp;`</span></div><div><span style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span
+
+style="color: #ff79c6;">-</span><span style="color: #f8f8f2;">reportTitle&nbsp;</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f1fa8c;">(</span><span style="color: #f8f8f2;">$clientName</span><span
+
+style="color: #f1fa8c;">)&nbsp;Azure&nbsp;Billing&nbsp;Summary&nbsp;(last&nbsp;billing&nbsp;cycle)</span><span
+
+style="color: #e9f284;">"</span><span style="color: #f8f8f2;">&nbsp;`</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">-</span><span
+
+style="color: #f8f8f2;">reportDescription&nbsp;$reportDescription&nbsp;`</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">-</span><span
+
+style="color: #f8f8f2;">reportDataArray&nbsp;$formattedReportArray&nbsp;`</span></div><div><span
+
+style="color: #f8f8f2;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color: #ff79c6;">-</span><span
+
+style="color: #f8f8f2;">recipientEmailAddresses&nbsp;$emailReportRecipients</span></div><div><span
+
+style="color: #f8f8f2;">}</span></div></div>
+  </body>
+</html>
